@@ -1,3 +1,5 @@
+"use client"
+
 import { FormStepper } from "@/components/form/form-stepper"
 
 export default function Home() {
