@@ -32,18 +32,15 @@ export function Navbar() {
       <header className="sticky top-0 z-50 border-b border-border bg-background shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2 sm:px-6">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex shrink-0 items-center">
             <Image
-              src="/images/dc-dmv-logo.jpg"
-              alt="DC DMV Seal"
-              width={44}
-              height={44}
-              className="rounded-full"
+              src="/images/dc-dmv-logo.png"
+              alt="DC DMV - District of Columbia Department of Motor Vehicles"
+              width={160}
+              height={56}
+              className="h-10 w-auto sm:h-12"
+              priority
             />
-            <div className="flex flex-col">
-              <span className="text-[11px] leading-tight text-muted-foreground">dmv</span>
-              <span className="text-xs font-semibold leading-tight text-foreground sm:text-sm">Department of Motor Vehicles</span>
-            </div>
           </Link>
 
           {/* Navigation links */}

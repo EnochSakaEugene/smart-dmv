@@ -7,19 +7,13 @@ export function Footer() {
         <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Image
-                src="/images/dc-dmv-logo.jpg"
-                alt="DC DMV Seal"
-                width={36}
-                height={36}
-                className="rounded-full"
-              />
-              <div className="flex flex-col">
-                <span className="text-[10px] leading-tight opacity-60">dmv</span>
-                <span className="text-sm font-semibold">Department of Motor Vehicles</span>
-              </div>
-            </div>
+            <Image
+              src="/images/dc-dmv-logo.png"
+              alt="DC DMV - District of Columbia Department of Motor Vehicles"
+              width={140}
+              height={50}
+              className="h-10 w-auto brightness-0 invert"
+            />
             <p className="text-sm leading-relaxed opacity-70">
               Department of Motor Vehicles
               <br />
