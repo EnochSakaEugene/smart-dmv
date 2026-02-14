@@ -29,18 +29,26 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
   const [loginPassword, setLoginPassword] = useState("")
 
   // Register form state
-  const [regName, setRegName] = useState("")
+  const [regFirstName, setRegFirstName] = useState("")
+  const [regLastName, setRegLastName] = useState("")
   const [regEmail, setRegEmail] = useState("")
   const [regPhone, setRegPhone] = useState("")
+  const [regAddress, setRegAddress] = useState("")
+  const [regCity, setRegCity] = useState("Washington, DC")
+  const [regZip, setRegZip] = useState("")
   const [regPassword, setRegPassword] = useState("")
   const [regConfirm, setRegConfirm] = useState("")
 
   const resetForms = () => {
     setLoginEmail("")
     setLoginPassword("")
-    setRegName("")
+    setRegFirstName("")
+    setRegLastName("")
     setRegEmail("")
     setRegPhone("")
+    setRegAddress("")
+    setRegCity("Washington, DC")
+    setRegZip("")
     setRegPassword("")
     setRegConfirm("")
     setError("")
@@ -76,7 +84,16 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
       return
     }
     setLoading(true)
-    const success = await register(regName, regEmail, regPhone, regPassword)
+    const success = await register({
+      firstName: regFirstName,
+      lastName: regLastName,
+      email: regEmail,
+      phone: regPhone,
+      address: regAddress,
+      city: regCity,
+      zip: regZip,
+      password: regPassword,
+    })
     setLoading(false)
     if (success) {
       handleClose()
@@ -87,7 +104,7 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
 
   return (
     <Dialog open={mode !== null} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-md border-border bg-background">
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto border-border bg-background">
         {mode === "login" ? (
           <>
             <DialogHeader>
@@ -152,7 +169,7 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                 Create an Account
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Register to start your document verification process.
+                Register to start your document verification process. Your information will pre-fill the application form.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleRegister} className="flex flex-col gap-4 pt-2">
@@ -161,16 +178,29 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   {error}
                 </div>
               )}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reg-name" className="text-foreground">Full Name</Label>
-                <Input
-                  id="reg-name"
-                  type="text"
-                  placeholder="John Doe"
-                  value={regName}
-                  onChange={(e) => setRegName(e.target.value)}
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="reg-first-name" className="text-foreground">First Name</Label>
+                  <Input
+                    id="reg-first-name"
+                    type="text"
+                    placeholder="John"
+                    value={regFirstName}
+                    onChange={(e) => setRegFirstName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="reg-last-name" className="text-foreground">Last Name</Label>
+                  <Input
+                    id="reg-last-name"
+                    type="text"
+                    placeholder="Doe"
+                    value={regLastName}
+                    onChange={(e) => setRegLastName(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="reg-email" className="text-foreground">Email</Label>
@@ -193,6 +223,39 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   onChange={(e) => setRegPhone(e.target.value)}
                   required
                 />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="reg-address" className="text-foreground">Street Address</Label>
+                <Input
+                  id="reg-address"
+                  type="text"
+                  placeholder="1234 Pennsylvania Ave NW"
+                  value={regAddress}
+                  onChange={(e) => setRegAddress(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="reg-city" className="text-foreground">City & State</Label>
+                  <Input
+                    id="reg-city"
+                    type="text"
+                    value={regCity}
+                    onChange={(e) => setRegCity(e.target.value)}
+                    disabled
+                    className="bg-muted text-muted-foreground"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="reg-zip" className="text-foreground">ZIP Code</Label>
+                  <Input
+                    id="reg-zip"
+                    type="text"
+                    placeholder="20001"
+                    value={regZip}
+                    onChange={(e) => setRegZip(e.target.value)}
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="reg-password" className="text-foreground">Password</Label>

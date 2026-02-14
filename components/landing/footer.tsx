@@ -1,3 +1,5 @@
+import Image from "next/image"
+
 export function Footer() {
   return (
     <footer id="contact" className="bg-accent text-accent-foreground">
@@ -6,10 +8,17 @@ export function Footer() {
           {/* Brand */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded bg-primary">
-                <span className="text-sm font-bold text-primary-foreground">DC</span>
+              <Image
+                src="/images/dc-dmv-logo.jpg"
+                alt="DC DMV Seal"
+                width={36}
+                height={36}
+                className="rounded-full"
+              />
+              <div className="flex flex-col">
+                <span className="text-[10px] leading-tight opacity-60">dmv</span>
+                <span className="text-sm font-semibold">Department of Motor Vehicles</span>
               </div>
-              <span className="text-base font-bold">Smart-DMV</span>
             </div>
             <p className="text-sm leading-relaxed opacity-70">
               Department of Motor Vehicles

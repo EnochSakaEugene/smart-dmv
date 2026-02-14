@@ -1,11 +1,42 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useAuth } from "@/lib/auth-context"
 import { FormStepper } from "@/components/form/form-stepper"
 import { Navbar } from "@/components/landing/navbar"
 import { Footer } from "@/components/landing/footer"
 
 export default function ApplicationPage() {
+  const { user, isLoading } = useAuth()
+  const router = useRouter()
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (!user) {
+        router.push("/")
+      } else {
+        setReady(true)
+      }
+    }
+  }, [user, isLoading, router])
+
+  if (isLoading || !ready) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background font-sans">
+        <Navbar />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans">
       <Navbar />
@@ -15,7 +46,7 @@ export default function ApplicationPage() {
         <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-3 text-xs text-muted-foreground sm:px-6">
           <Link href="/" className="transition-colors hover:text-primary">Home</Link>
           <span>/</span>
-          <span className="text-foreground font-medium">DL/ID Application</span>
+          <span className="font-medium text-foreground">DL/ID Application</span>
         </div>
       </div>
 

@@ -1,5 +1,15 @@
 "use client"
 
+export interface SectionBDefaults {
+  firstName?: string
+  lastName?: string
+  email?: string
+  phone?: string
+  address?: string
+  city?: string
+  zip?: string
+}
+
 function FormField({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
@@ -9,17 +19,20 @@ function FormField({ label, children, className = "" }: { label: string; childre
   )
 }
 
-function TextInput({ name, className = "" }: { name: string; className?: string }) {
+function TextInput({ name, defaultValue = "", className = "" }: { name: string; defaultValue?: string; className?: string }) {
   return (
     <input
       type="text"
       name={name}
+      defaultValue={defaultValue}
       className={`border-b border-foreground/30 bg-transparent py-1 text-sm outline-none focus:border-foreground ${className}`}
     />
   )
 }
 
-export function SectionB() {
+export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
+  const d = defaults || {}
+
   return (
     <fieldset className="border border-foreground/30 p-4">
       <legend className="px-2 font-bold text-sm text-foreground">
@@ -29,10 +42,10 @@ export function SectionB() {
         {/* Row 1: Name */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <FormField label="Last Name" className="sm:col-span-2">
-            <TextInput name="last_name" />
+            <TextInput name="last_name" defaultValue={d.lastName} />
           </FormField>
           <FormField label="First Name">
-            <TextInput name="first_name" />
+            <TextInput name="first_name" defaultValue={d.firstName} />
           </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Middle Name">
@@ -47,7 +60,7 @@ export function SectionB() {
         {/* Row 2: Address */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <FormField label="Address where you live (a mailing only address cannot be used)" className="sm:col-span-8">
-            <TextInput name="address" />
+            <TextInput name="address" defaultValue={d.address} />
           </FormField>
           <FormField label="Apt/Unit #" className="sm:col-span-2">
             <TextInput name="apt_unit" />
@@ -60,7 +73,7 @@ export function SectionB() {
         {/* Row 2b: ZIP */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <FormField label="ZIP Code" className="sm:col-span-2">
-            <TextInput name="zip_code" />
+            <TextInput name="zip_code" defaultValue={d.zip} />
           </FormField>
           <div className="sm:col-span-10" />
         </div>
@@ -136,9 +149,19 @@ export function SectionB() {
           <FormField label="Cell Phone" className="sm:col-span-3">
             <div className="flex items-center gap-0.5">
               <span className="text-sm text-muted-foreground">(</span>
-              <input type="text" name="cell_area" maxLength={3} className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
+              <input
+                type="text"
+                name="cell_area"
+                maxLength={3}
+                defaultValue={d.phone ? d.phone.replace(/\D/g, "").slice(0, 3) : ""}
+                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground"
+              />
               <span className="text-sm text-muted-foreground">)</span>
-              <TextInput name="cell_phone" className="flex-1" />
+              <TextInput
+                name="cell_phone"
+                defaultValue={d.phone ? d.phone.replace(/\D/g, "").slice(3) : ""}
+                className="flex-1"
+              />
             </div>
           </FormField>
           <FormField label="Alternate Phone" className="sm:col-span-3">
@@ -159,7 +182,7 @@ export function SectionB() {
             </div>
           </FormField>
           <FormField label="Email" className="sm:col-span-4">
-            <TextInput name="email" />
+            <TextInput name="email" defaultValue={d.email} />
           </FormField>
         </div>
       </div>

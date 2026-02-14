@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { SectionA } from "./section-a"
-import { SectionB } from "./section-b"
+import { SectionB, type SectionBDefaults } from "./section-b"
 import { SectionC } from "./section-c"
 import { SectionD } from "./section-d"
 import { SectionE } from "./section-e"
@@ -98,10 +99,24 @@ function StepIndicator({
 }
 
 export function FormStepper() {
+  const { user } = useAuth()
   const [currentStep, setCurrentStep] = useState(0)
   const [draftSaved, setDraftSaved] = useState(false)
   const [hasDraft, setHasDraft] = useState(false)
   const formRef = useRef<HTMLDivElement>(null)
+
+  // Build default values from user registration data
+  const sectionBDefaults: SectionBDefaults | undefined = user
+    ? {
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        address: user.address,
+        city: user.city,
+        zip: user.zip,
+      }
+    : undefined
 
   // Check for existing draft on mount
   useEffect(() => {
@@ -226,7 +241,7 @@ export function FormStepper() {
         {currentStep === 0 && (
           <>
             <SectionA />
-            <SectionB />
+            <SectionB defaults={sectionBDefaults} />
           </>
         )}
         {currentStep === 1 && (

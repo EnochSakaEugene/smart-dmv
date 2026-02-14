@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { AuthModal } from "@/components/landing/auth-modal"
@@ -29,17 +30,19 @@ export function Navbar() {
 
       {/* Main nav */}
       <header className="sticky top-0 z-50 border-b border-border bg-background shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2 sm:px-6">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded bg-primary">
-              <span className="text-lg font-bold text-primary-foreground">DC</span>
-            </div>
+            <Image
+              src="/images/dc-dmv-logo.jpg"
+              alt="DC DMV Seal"
+              width={44}
+              height={44}
+              className="rounded-full"
+            />
             <div className="flex flex-col">
-              <span className="text-base font-bold leading-tight text-foreground sm:text-lg">Smart-DMV</span>
-              <span className="hidden text-[11px] leading-tight text-muted-foreground sm:block">
-                Department of Motor Vehicles
-              </span>
+              <span className="text-[11px] leading-tight text-muted-foreground">dmv</span>
+              <span className="text-xs font-semibold leading-tight text-foreground sm:text-sm">Department of Motor Vehicles</span>
             </div>
           </Link>
 
