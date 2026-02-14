@@ -4,16 +4,30 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 
 export interface User {
   id: string
+  firstName: string
+  lastName: string
   name: string
   email: string
   phone: string
+  address?: string
+  city?: string
+  zip?: string
   createdAt: string
 }
 
 interface AuthContextType {
   user: User | null
   login: (email: string, password: string) => Promise<boolean>
-  register: (name: string, email: string, phone: string, password: string) => Promise<boolean>
+  register: (data: {
+    firstName: string
+    lastName: string
+    email: string
+    phone: string
+    address?: string
+    city?: string
+    zip?: string
+    password: string
+  }) => Promise<boolean>
   logout: () => void
   isLoading: boolean
 }
@@ -56,24 +70,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const register = async (
-    name: string,
-    email: string,
-    phone: string,
+  const register = async (data: {
+    firstName: string
+    lastName: string
+    email: string
+    phone: string
+    address?: string
+    city?: string
+    zip?: string
     password: string
-  ): Promise<boolean> => {
+  }): Promise<boolean> => {
     try {
       const usersRaw = localStorage.getItem(USERS_KEY)
       const users: Array<User & { password: string }> = usersRaw ? JSON.parse(usersRaw) : []
-      if (users.find((u) => u.email === email)) {
+      if (users.find((u) => u.email === data.email)) {
         return false
       }
       const newUser = {
         id: crypto.randomUUID(),
-        name,
-        email,
-        phone,
-        password,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        name: `${data.firstName} ${data.lastName}`,
+        email: data.email,
+        phone: data.phone,
+        address: data.address || "",
+        city: data.city || "",
+        zip: data.zip || "",
+        password: data.password,
         createdAt: new Date().toISOString(),
       }
       users.push(newUser)
