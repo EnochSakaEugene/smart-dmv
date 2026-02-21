@@ -1,12 +1,17 @@
 import * as jwt from "jsonwebtoken";
 
-const secret = process.env.JWT_SECRET;
-if (!secret) throw new Error("Missing JWT_SECRET");
+function getSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error("Missing JWT_SECRET");
+  return secret;
+}
 
 export function signSession(payload: { userId: string; email: string }) {
-  return jwt.sign(payload, secret, { expiresIn: "7d" });
+  return jwt.sign(payload, getSecret(), { expiresIn: "7d" });
 }
 
 export function verifySession(token: string) {
-  return jwt.verify(token, secret) as { userId: string; email: string; iat: number; exp: number };
+  const decoded = jwt.verify(token, getSecret());
+  if (typeof decoded === "string") throw new Error("Invalid token payload");
+  return decoded as { userId: string; email: string; iat: number; exp: number };
 }
