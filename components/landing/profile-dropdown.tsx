@@ -1,30 +1,34 @@
-"use client"
+"use client";
 
-import { useAuth } from "@/lib/auth-context"
+import { useAuth } from "@/lib/auth-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu"
-import { Button } from "@/components/ui/button"
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 
 export function ProfileDropdown() {
-  const { user, logout } = useAuth()
+  const { user, logout } = useAuth();
 
-  if (!user) return null
+  if (!user) return null;
 
   const initials = user.name
     .split(" ")
     .map((n) => n[0])
     .join("")
     .toUpperCase()
-    .slice(0, 2)
+    .slice(0, 2);
 
-  const createdDate = new Date(user.createdAt)
-  const expiryDate = new Date(createdDate.getTime() + 90 * 24 * 60 * 60 * 1000)
-  const now = new Date()
-  const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+  const createdDate = new Date(user.createdAt);
+  const expiryDate = new Date(createdDate.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const daysLeft = Math.max(
+    0,
+    Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  );
 
   return (
     <DropdownMenu>
@@ -55,6 +59,7 @@ export function ProfileDropdown() {
           </svg>
         </button>
       </DropdownMenuTrigger>
+
       <DropdownMenuContent align="end" className="w-72 border-border bg-background p-0">
         {/* Profile info */}
         <div className="flex items-center gap-3 p-4">
@@ -72,11 +77,13 @@ export function ProfileDropdown() {
 
         {/* Account expiry notice */}
         <div className="px-4 py-3">
-          <div className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${
-            daysLeft <= 14
-              ? "border-destructive/30 bg-destructive/5 text-destructive"
-              : "border-primary/20 bg-primary/5 text-primary"
-          }`}>
+          <div
+            className={`flex items-center gap-2 rounded border px-3 py-2 text-xs ${
+              daysLeft <= 14
+                ? "border-destructive/30 bg-destructive/5 text-destructive"
+                : "border-primary/20 bg-primary/5 text-primary"
+            }`}
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="14"
@@ -100,13 +107,13 @@ export function ProfileDropdown() {
 
         <DropdownMenuSeparator />
 
-        {/* Logout */}
+        {/* Logout (auto-closes dropdown) */}
         <div className="p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={logout}
-            className="w-full justify-start gap-2 text-foreground hover:bg-muted hover:text-foreground"
+          <DropdownMenuItem
+            onClick={async () => {
+              await logout();
+            }}
+            className="cursor-pointer gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-muted focus:bg-muted"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -124,9 +131,12 @@ export function ProfileDropdown() {
               <line x1="21" y1="12" x2="9" y2="12" />
             </svg>
             Log Out
-          </Button>
+          </DropdownMenuItem>
         </div>
+
+        {/* Optional extra action example (kept from your original imports) */}
+        {/* If you don't use Button anywhere else in this file, you can remove the Button import above. */}
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }
