@@ -7,7 +7,7 @@ const DOC_STATUS_KEY = "dmv_document_status"
 interface StepItem {
   label: string
   description: string
-  status: "completed" | "in-progress" | "pending"
+  status: "completed" | "in-progress" | "pending" | "error"
 }
 
 export function ProgressSidebar() {
@@ -54,6 +54,30 @@ export function ProgressSidebar() {
               return step
             })
           )
+        } else if (docStatus.leaseDocument?.supportRequested) {
+          setSteps((prev) =>
+            prev.map((step) => {
+              if (step.label === "Document Upload") {
+                return { ...step, status: "completed" as const }
+              }
+              if (step.label === "Document Verification") {
+                return { ...step, status: "error" as const, description: "Pending staff review" }
+              }
+              return step
+            })
+          )
+        } else if (docStatus.leaseDocument?.rejected) {
+          setSteps((prev) =>
+            prev.map((step) => {
+              if (step.label === "Document Upload") {
+                return { ...step, status: "completed" as const }
+              }
+              if (step.label === "Document Verification") {
+                return { ...step, status: "error" as const, description: "Verification failed" }
+              }
+              return step
+            })
+          )
         } else if (docStatus.leaseDocument?.uploaded) {
           setSteps((prev) =>
             prev.map((step) => {
@@ -86,13 +110,17 @@ export function ProgressSidebar() {
                     ? "border-green-600 bg-green-600 text-card"
                     : step.status === "in-progress"
                       ? "border-primary bg-primary/10 text-primary"
-                      : "border-muted-foreground/30 bg-background text-muted-foreground/40"
+                      : step.status === "error"
+                        ? "border-amber-500 bg-amber-500 text-card"
+                        : "border-muted-foreground/30 bg-background text-muted-foreground/40"
                 }`}
               >
                 {step.status === "completed" ? (
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 ) : step.status === "in-progress" ? (
                   <div className="h-2.5 w-2.5 rounded-full bg-primary" />
+                ) : step.status === "error" ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                 ) : (
                   <span className="text-xs font-semibold">{index + 1}</span>
                 )}
@@ -100,7 +128,11 @@ export function ProgressSidebar() {
               {index < steps.length - 1 && (
                 <div
                   className={`w-0.5 flex-1 min-h-8 ${
-                    step.status === "completed" ? "bg-green-600" : "bg-muted-foreground/20"
+                    step.status === "completed"
+                      ? "bg-green-600"
+                      : step.status === "error"
+                        ? "bg-amber-400"
+                        : "bg-muted-foreground/20"
                   }`}
                 />
               )}
@@ -114,7 +146,9 @@ export function ProgressSidebar() {
                     ? "text-green-700"
                     : step.status === "in-progress"
                       ? "text-foreground"
-                      : "text-muted-foreground/60"
+                      : step.status === "error"
+                        ? "text-amber-700"
+                        : "text-muted-foreground/60"
                 }`}
               >
                 {step.label}
@@ -125,7 +159,9 @@ export function ProgressSidebar() {
                     ? "text-green-600"
                     : step.status === "in-progress"
                       ? "text-muted-foreground"
-                      : "text-muted-foreground/50"
+                      : step.status === "error"
+                        ? "text-amber-600"
+                        : "text-muted-foreground/50"
                 }`}
               >
                 {step.description}
