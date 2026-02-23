@@ -1,9 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthModal } from "@/components/landing/auth-modal"
+
+const APP_STATUS_KEY = "dmv_application_status"
 
 const services = [
   {
@@ -67,6 +69,21 @@ export function FeaturedServices() {
   const { user } = useAuth()
   const router = useRouter()
   const [authModal, setAuthModal] = useState<"login" | "register" | null>(null)
+  const [formSubmitted, setFormSubmitted] = useState(false)
+
+  useEffect(() => {
+    try {
+      const statusRaw = localStorage.getItem(APP_STATUS_KEY)
+      if (statusRaw) {
+        const status = JSON.parse(statusRaw)
+        if (status.formSubmitted) {
+          setFormSubmitted(true)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const handleServiceClick = (service: typeof services[number], e: React.MouseEvent) => {
     if (service.requiresAuth && !user) {
@@ -74,6 +91,15 @@ export function FeaturedServices() {
       setAuthModal("login")
       return
     }
+
+    // If user already submitted the application form and clicks "Document Verification",
+    // redirect to the document upload page instead of starting a new application
+    if (service.title === "Document Verification" && user && formSubmitted) {
+      e.preventDefault()
+      router.push("/document-upload")
+      return
+    }
+
     if (service.href !== "#") {
       e.preventDefault()
       router.push(service.href)
@@ -123,7 +149,7 @@ export function FeaturedServices() {
                 )}
                 {service.highlight && user && (
                   <span className="mt-auto inline-flex items-center gap-1 text-sm font-medium text-primary">
-                    Get Started
+                    {formSubmitted ? "Continue to Documents" : "Get Started"}
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                   </span>
                 )}

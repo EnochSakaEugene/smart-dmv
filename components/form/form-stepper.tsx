@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { SectionA } from "./section-a"
@@ -13,6 +14,7 @@ import { SectionG } from "./section-g"
 import { SectionH } from "./section-h"
 
 const DRAFT_KEY = "dmv_form_draft"
+const APP_STATUS_KEY = "dmv_application_status"
 
 const STEPS = [
   {
@@ -100,9 +102,12 @@ function StepIndicator({
 
 export function FormStepper() {
   const { user } = useAuth()
+  const router = useRouter()
   const [currentStep, setCurrentStep] = useState(0)
   const [draftSaved, setDraftSaved] = useState(false)
   const [hasDraft, setHasDraft] = useState(false)
+  const [showSuccess, setShowSuccess] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const formRef = useRef<HTMLDivElement>(null)
 
   // Build default values from user registration data
@@ -194,6 +199,53 @@ export function FormStepper() {
     setHasDraft(false)
   }, [])
 
+  const handleSubmit = useCallback(() => {
+    // Validate that we're on the last step
+    if (currentStep !== STEPS.length - 1) return
+
+    // Check that essential form fields are filled
+    const formEl = formRef.current?.closest("form")
+    if (!formEl) return
+
+    const formData = new FormData(formEl)
+    const data: Record<string, string> = {}
+    formData.forEach((value, key) => {
+      data[key] = value.toString()
+    })
+
+    // Check essential fields (at minimum a checkbox in section A, and name fields in section B)
+    const hasNeedSelected = data["need_driver_license"] || data["need_id_card"] || data["need_motorcycle"]
+    if (!hasNeedSelected) {
+      setValidationError("Please select at least one option in Section A (What do you need?).")
+      return
+    }
+
+    const requiredTextFields = ["first_name", "last_name", "email"]
+    const missingFields = requiredTextFields.filter((field) => !data[field] || data[field].trim() === "")
+    if (missingFields.length > 0) {
+      setValidationError("Please fill in all required personal information fields (First Name, Last Name, Email).")
+      return
+    }
+
+    setValidationError(null)
+
+    // Mark application as submitted
+    const status = {
+      formSubmitted: true,
+      submittedAt: new Date().toISOString(),
+      userId: user?.id,
+      documentsUploaded: false,
+    }
+    localStorage.setItem(APP_STATUS_KEY, JSON.stringify(status))
+
+    // Clear draft since the form is submitted
+    localStorage.removeItem(DRAFT_KEY)
+    setHasDraft(false)
+
+    // Show success modal
+    setShowSuccess(true)
+  }, [currentStep, user])
+
   const goNext = () => {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep((s) => s + 1)
@@ -210,6 +262,40 @@ export function FormStepper() {
 
   return (
     <div ref={formRef} className="flex flex-col gap-6">
+      {/* Success Modal */}
+      {showSuccess && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50">
+          <div className="mx-4 flex w-full max-w-md flex-col items-center gap-4 rounded-lg border border-border bg-card p-8 shadow-xl">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <h3 className="text-lg font-bold text-foreground">Application Submitted Successfully</h3>
+            <p className="text-center text-sm leading-relaxed text-muted-foreground">
+              Your DC Driver License / ID Card application has been submitted. Please continue to the document upload page to complete your verification process.
+            </p>
+            <Button
+              type="button"
+              onClick={() => router.push("/document-upload")}
+              className="mt-2 w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Continue to Document Upload
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Validation Error */}
+      {validationError && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-destructive"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+          <span className="text-sm text-destructive">{validationError}</span>
+          <button type="button" onClick={() => setValidationError(null)} className="ml-auto text-destructive hover:text-destructive/80">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+      )}
+
       {/* Draft restore banner */}
       {hasDraft && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
@@ -323,7 +409,7 @@ export function FormStepper() {
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
           </Button>
         ) : (
-          <Button type="submit" className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button type="button" onClick={handleSubmit} className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90">
             Submit Application
           </Button>
         )}
