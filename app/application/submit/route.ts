@@ -1,4 +1,4 @@
-// app/api/application/submit/route.ts
+// app/application/submit/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -31,6 +31,15 @@ function mergeStepData(steps: Array<{ stepKey: string; payload: any }>) {
   return merged;
 }
 
+// optional: normalize a few common fields before canonical save
+function normalizeCanonical(data: Record<string, any>) {
+  const out = { ...data };
+  if (typeof out.email === "string") out.email = out.email.trim().toLowerCase();
+  if (typeof out.firstName === "string") out.firstName = out.firstName.trim();
+  if (typeof out.lastName === "string") out.lastName = out.lastName.trim();
+  return out;
+}
+
 export async function POST(req: Request) {
   try {
     const userId = await getUserIdFromSession();
@@ -45,8 +54,6 @@ export async function POST(req: Request) {
 
     const result = await prisma.$transaction(async (tx) => {
       // Pick a draft to submit:
-      // - if applicationId provided, use it (must belong to user and be DRAFT)
-      // - otherwise, submit the latest DRAFT
       const app = requestedApplicationId
         ? await tx.application.findFirst({
             where: { id: requestedApplicationId, userId, status: "DRAFT" },
@@ -62,7 +69,6 @@ export async function POST(req: Request) {
         return { ok: false as const, status: 404 as const, payload: { error: "No draft found" } };
       }
 
-      // If already submitted somehow, block
       if (app.status !== "DRAFT") {
         return {
           ok: false as const,
@@ -81,10 +87,11 @@ export async function POST(req: Request) {
         };
       }
 
-      // Merge all saved step snapshots (handy for validation/logging/return)
-      const mergedData = mergeStepData(app.steps);
+      // Merge all saved step snapshots
+      const mergedDataRaw = mergeStepData(app.steps);
+      const mergedData = normalizeCanonical(mergedDataRaw);
 
-      // Optional minimal validation (edit as you like)
+      // Minimal validation (edit as you like)
       const required = ["email", "firstName", "lastName", "phone"] as const;
       const missing = required.filter((k) => !mergedData?.[k]);
       if (missing.length) {
@@ -95,22 +102,31 @@ export async function POST(req: Request) {
         };
       }
 
-      // Mark the application submitted
+      // ✅ Canonical save + mark submitted
       await tx.application.update({
         where: { id: app.id },
-        data: { status: "SUBMITTED" },
+        data: {
+          status: "SUBMITTED",
+          formData: mergedData, // ✅ canonical snapshot
+        },
       });
 
-      // Store submit meta (optional, but helpful)
+      // Store submit meta (optional)
       await tx.applicationStep.upsert({
         where: { applicationId_stepKey: { applicationId: app.id, stepKey: META_KEY } },
         create: {
           applicationId: app.id,
           stepKey: META_KEY,
-          payload: { submittedAt: new Date().toISOString(), submittedBy: userId },
+          payload: {
+            submittedAt: new Date().toISOString(),
+            submittedBy: userId,
+          },
         },
         update: {
-          payload: { submittedAt: new Date().toISOString(), submittedBy: userId },
+          payload: {
+            submittedAt: new Date().toISOString(),
+            submittedBy: userId,
+          },
         },
       });
 
@@ -123,6 +139,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result.payload, { status: result.status });
   } catch (e) {
+    console.error("submit error:", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
