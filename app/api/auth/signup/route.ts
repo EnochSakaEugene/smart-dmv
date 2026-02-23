@@ -3,10 +3,20 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { signSession } from "@/lib/auth";
 
+export const runtime = "nodejs"; // IMPORTANT for Prisma on Vercel/Next
+
 export async function POST(req: Request) {
   try {
-    const { email, password, firstName, lastName, phone, address, city, zip } =
-      await req.json();
+    const {
+      email,
+      password,
+      firstName,
+      lastName,
+      phone,
+      address,
+      city,
+      zip,
+    } = await req.json();
 
     if (!email || !password || !firstName || !lastName || !phone) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -30,29 +40,12 @@ export async function POST(req: Request) {
         city: city ?? null,
         zip: zip ?? null,
       },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        address: true,
-        city: true,
-        zip: true,
-        createdAt: true,
-      },
+      select: { id: true, email: true, firstName: true, lastName: true },
     });
 
     const token = signSession({ userId: user.id, email: user.email });
 
-    const res = NextResponse.json({
-      ok: true,
-      user: {
-        ...user,
-        name: `${user.firstName} ${user.lastName}`,
-      },
-    });
-
+    const res = NextResponse.json({ ok: true, user });
     res.cookies.set("session", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -62,7 +55,15 @@ export async function POST(req: Request) {
     });
 
     return res;
-  } catch {
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  } catch (e) {
+    // show the real reason in your terminal (and in response during dev)
+    console.error("SIGNUP_ERROR:", e);
+
+    const message =
+      process.env.NODE_ENV !== "production" && e instanceof Error
+        ? e.message
+        : "Server error";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
