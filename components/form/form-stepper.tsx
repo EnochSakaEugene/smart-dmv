@@ -108,8 +108,7 @@ export function FormStepper() {
   const [hasDraft, setHasDraft] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
-  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]))
-  const [collectedData, setCollectedData] = useState<Record<string, string>>({})
+
   const formRef = useRef<HTMLDivElement>(null)
 
   // Build default values from user registration data
@@ -201,88 +200,70 @@ export function FormStepper() {
     setHasDraft(false)
   }, [])
 
-  // Capture current step's form data into collectedData
-  const captureCurrentStepData = useCallback(() => {
-    const formEl = formRef.current?.closest("form")
-    if (!formEl) return
-
-    const formData = new FormData(formEl)
-    const stepData: Record<string, string> = {}
-    formData.forEach((value, key) => {
-      stepData[key] = value.toString()
-    })
-
-    // Also capture checkboxes that are checked (FormData includes them as "on")
-    const checkboxes = formEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
-    checkboxes.forEach((cb) => {
-      if (cb.name) {
-        stepData[cb.name] = cb.checked ? "on" : ""
-      }
-    })
-
-    setCollectedData((prev) => ({ ...prev, ...stepData }))
-  }, [])
-
   const handleSubmit = useCallback(() => {
     // Validate that we're on the last step
     if (currentStep !== STEPS.length - 1) return
 
-    // Capture current step data first
-    captureCurrentStepData()
+    // All steps are always in the DOM (hidden via CSS), so FormData captures everything
+    const formEl = formRef.current?.closest("form")
+    if (!formEl) return
 
-    // Use a small timeout to ensure state has updated from captureCurrentStepData
-    setTimeout(() => {
-      setCollectedData((allData) => {
-        // Check essential fields from collected data across all steps
-        const hasNeedSelected = allData["need_driver_license"] === "on" || allData["need_id_card"] === "on" || allData["need_motorcycle"] === "on"
-        if (!hasNeedSelected) {
-          setValidationError("Please select at least one option in Section A (What do you need?). Go back to Step 1 to complete it.")
-          return allData
-        }
+    const formData = new FormData(formEl)
+    const data: Record<string, string> = {}
+    formData.forEach((value, key) => {
+      data[key] = value.toString()
+    })
 
-        const requiredTextFields = ["first_name", "last_name", "email"]
-        const missingFields = requiredTextFields.filter((field) => !allData[field] || allData[field].trim() === "")
-        if (missingFields.length > 0) {
-          setValidationError("Please fill in all required personal information fields (First Name, Last Name, Email). Go back to Step 1 to complete them.")
-          return allData
-        }
+    // Also check checkboxes explicitly (unchecked ones aren't in FormData)
+    const checkboxes = formEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+    checkboxes.forEach((cb) => {
+      if (cb.name && cb.checked) {
+        data[cb.name] = "on"
+      }
+    })
 
-        setValidationError(null)
+    // Check essential fields
+    const hasNeedSelected = data["need_driver_license"] === "on" || data["need_id_card"] === "on" || data["need_motorcycle"] === "on"
+    if (!hasNeedSelected) {
+      setValidationError("Please select at least one option in Section A (What do you need?). Go back to Step 1 to complete it.")
+      return
+    }
 
-        // Mark application as submitted
-        const status = {
-          formSubmitted: true,
-          submittedAt: new Date().toISOString(),
-          userId: user?.id,
-          documentsUploaded: false,
-        }
-        localStorage.setItem(APP_STATUS_KEY, JSON.stringify(status))
+    const requiredTextFields = ["first_name", "last_name", "email"]
+    const missingFields = requiredTextFields.filter((field) => !data[field] || data[field].trim() === "")
+    if (missingFields.length > 0) {
+      setValidationError("Please fill in all required personal information fields (First Name, Last Name, Email). Go back to Step 1 to complete them.")
+      return
+    }
 
-        // Clear draft since the form is submitted
-        localStorage.removeItem(DRAFT_KEY)
-        setHasDraft(false)
+    setValidationError(null)
 
-        // Show success modal
-        setShowSuccess(true)
+    // Mark application as submitted
+    const status = {
+      formSubmitted: true,
+      submittedAt: new Date().toISOString(),
+      userId: user?.id,
+      documentsUploaded: false,
+    }
+    localStorage.setItem(APP_STATUS_KEY, JSON.stringify(status))
 
-        return allData
-      })
-    }, 0)
-  }, [currentStep, user, captureCurrentStepData])
+    // Clear draft since the form is submitted
+    localStorage.removeItem(DRAFT_KEY)
+    setHasDraft(false)
+
+    // Show success modal
+    setShowSuccess(true)
+  }, [currentStep, user])
 
   const goNext = () => {
     if (currentStep < STEPS.length - 1) {
-      captureCurrentStepData()
-      const nextStep = currentStep + 1
-      setCurrentStep(nextStep)
-      setVisitedSteps((prev) => new Set([...prev, nextStep]))
+      setCurrentStep((s) => s + 1)
       window.scrollTo({ top: 0, behavior: "smooth" })
     }
   }
 
   const goPrev = () => {
     if (currentStep > 0) {
-      captureCurrentStepData()
       setCurrentStep((s) => s - 1)
       window.scrollTo({ top: 0, behavior: "smooth" })
     }
@@ -350,59 +331,49 @@ export function FormStepper() {
         </p>
       </div>
 
-      {/* Step content */}
-      <div className="flex flex-col gap-4">
-        {currentStep === 0 && (
-          <>
-            <SectionA />
-            <SectionB defaults={sectionBDefaults} />
-          </>
-        )}
-        {currentStep === 1 && (
-          <>
-            <SectionC />
-            <SectionD />
-          </>
-        )}
-        {currentStep === 2 && (
-          <>
-            <SectionE />
-            <SectionF />
-          </>
-        )}
-        {currentStep === 3 && (
-          <>
-            <SectionG />
-            <SectionH />
+      {/* Step content - all steps rendered but only active one visible, preserving form state */}
+      <div className={`flex flex-col gap-4 ${currentStep !== 0 ? "hidden" : ""}`}>
+        <SectionA />
+        <SectionB defaults={sectionBDefaults} />
+      </div>
+      <div className={`flex flex-col gap-4 ${currentStep !== 1 ? "hidden" : ""}`}>
+        <SectionC />
+        <SectionD />
+      </div>
+      <div className={`flex flex-col gap-4 ${currentStep !== 2 ? "hidden" : ""}`}>
+        <SectionE />
+        <SectionF />
+      </div>
+      <div className={`flex flex-col gap-4 ${currentStep !== 3 ? "hidden" : ""}`}>
+        <SectionG />
+        <SectionH />
 
-            {/* Office Use Section */}
-            <div className="flex flex-col gap-2 border border-foreground/30 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <p className="text-xs text-muted-foreground">
-                  To confidentially report waste, fraud or abuse by a DC Government Agency or official, call the DC Inspector General at 1.800.521.1639
-                </p>
-                <p className="whitespace-nowrap text-xs text-muted-foreground">
-                  Form revised February 2025
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-3 border-t border-foreground/20 pt-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-0.5">
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Employee Signature</label>
-                  <div className="h-10 border-b border-foreground/30" />
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Date</label>
-                  <div className="h-10 border-b border-foreground/30" />
-                </div>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Questions: Please visit our website at{" "}
-                <span className="font-medium text-foreground">dmv.dc.gov</span>{" "}
-                or call 311 in DC or 202.737.4404 outside the 202 area code.
-              </p>
+        {/* Office Use Section */}
+        <div className="flex flex-col gap-2 border border-foreground/30 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              To confidentially report waste, fraud or abuse by a DC Government Agency or official, call the DC Inspector General at 1.800.521.1639
+            </p>
+            <p className="whitespace-nowrap text-xs text-muted-foreground">
+              Form revised February 2025
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 border-t border-foreground/20 pt-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-0.5">
+              <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Employee Signature</label>
+              <div className="h-10 border-b border-foreground/30" />
             </div>
-          </>
-        )}
+            <div className="flex flex-col gap-0.5">
+              <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Date</label>
+              <div className="h-10 border-b border-foreground/30" />
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Questions: Please visit our website at{" "}
+            <span className="font-medium text-foreground">dmv.dc.gov</span>{" "}
+            or call 311 in DC or 202.737.4404 outside the 202 area code.
+          </p>
+        </div>
       </div>
 
       {/* Navigation with Save Draft */}
