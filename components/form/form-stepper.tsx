@@ -108,6 +108,8 @@ export function FormStepper() {
   const [hasDraft, setHasDraft] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]))
+  const [collectedData, setCollectedData] = useState<Record<string, string>>({})
   const formRef = useRef<HTMLDivElement>(null)
 
   // Build default values from user registration data
@@ -199,62 +201,88 @@ export function FormStepper() {
     setHasDraft(false)
   }, [])
 
-  const handleSubmit = useCallback(() => {
-    // Validate that we're on the last step
-    if (currentStep !== STEPS.length - 1) return
-
-    // Check that essential form fields are filled
+  // Capture current step's form data into collectedData
+  const captureCurrentStepData = useCallback(() => {
     const formEl = formRef.current?.closest("form")
     if (!formEl) return
 
     const formData = new FormData(formEl)
-    const data: Record<string, string> = {}
+    const stepData: Record<string, string> = {}
     formData.forEach((value, key) => {
-      data[key] = value.toString()
+      stepData[key] = value.toString()
     })
 
-    // Check essential fields (at minimum a checkbox in section A, and name fields in section B)
-    const hasNeedSelected = data["need_driver_license"] || data["need_id_card"] || data["need_motorcycle"]
-    if (!hasNeedSelected) {
-      setValidationError("Please select at least one option in Section A (What do you need?).")
-      return
-    }
+    // Also capture checkboxes that are checked (FormData includes them as "on")
+    const checkboxes = formEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+    checkboxes.forEach((cb) => {
+      if (cb.name) {
+        stepData[cb.name] = cb.checked ? "on" : ""
+      }
+    })
 
-    const requiredTextFields = ["first_name", "last_name", "email"]
-    const missingFields = requiredTextFields.filter((field) => !data[field] || data[field].trim() === "")
-    if (missingFields.length > 0) {
-      setValidationError("Please fill in all required personal information fields (First Name, Last Name, Email).")
-      return
-    }
+    setCollectedData((prev) => ({ ...prev, ...stepData }))
+  }, [])
 
-    setValidationError(null)
+  const handleSubmit = useCallback(() => {
+    // Validate that we're on the last step
+    if (currentStep !== STEPS.length - 1) return
 
-    // Mark application as submitted
-    const status = {
-      formSubmitted: true,
-      submittedAt: new Date().toISOString(),
-      userId: user?.id,
-      documentsUploaded: false,
-    }
-    localStorage.setItem(APP_STATUS_KEY, JSON.stringify(status))
+    // Capture current step data first
+    captureCurrentStepData()
 
-    // Clear draft since the form is submitted
-    localStorage.removeItem(DRAFT_KEY)
-    setHasDraft(false)
+    // Use a small timeout to ensure state has updated from captureCurrentStepData
+    setTimeout(() => {
+      setCollectedData((allData) => {
+        // Check essential fields from collected data across all steps
+        const hasNeedSelected = allData["need_driver_license"] === "on" || allData["need_id_card"] === "on" || allData["need_motorcycle"] === "on"
+        if (!hasNeedSelected) {
+          setValidationError("Please select at least one option in Section A (What do you need?). Go back to Step 1 to complete it.")
+          return allData
+        }
 
-    // Show success modal
-    setShowSuccess(true)
-  }, [currentStep, user])
+        const requiredTextFields = ["first_name", "last_name", "email"]
+        const missingFields = requiredTextFields.filter((field) => !allData[field] || allData[field].trim() === "")
+        if (missingFields.length > 0) {
+          setValidationError("Please fill in all required personal information fields (First Name, Last Name, Email). Go back to Step 1 to complete them.")
+          return allData
+        }
+
+        setValidationError(null)
+
+        // Mark application as submitted
+        const status = {
+          formSubmitted: true,
+          submittedAt: new Date().toISOString(),
+          userId: user?.id,
+          documentsUploaded: false,
+        }
+        localStorage.setItem(APP_STATUS_KEY, JSON.stringify(status))
+
+        // Clear draft since the form is submitted
+        localStorage.removeItem(DRAFT_KEY)
+        setHasDraft(false)
+
+        // Show success modal
+        setShowSuccess(true)
+
+        return allData
+      })
+    }, 0)
+  }, [currentStep, user, captureCurrentStepData])
 
   const goNext = () => {
     if (currentStep < STEPS.length - 1) {
-      setCurrentStep((s) => s + 1)
+      captureCurrentStepData()
+      const nextStep = currentStep + 1
+      setCurrentStep(nextStep)
+      setVisitedSteps((prev) => new Set([...prev, nextStep]))
       window.scrollTo({ top: 0, behavior: "smooth" })
     }
   }
 
   const goPrev = () => {
     if (currentStep > 0) {
+      captureCurrentStepData()
       setCurrentStep((s) => s - 1)
       window.scrollTo({ top: 0, behavior: "smooth" })
     }
