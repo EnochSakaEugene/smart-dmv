@@ -74,8 +74,14 @@ function seedDefaultUsers() {
     
     let updated = false
     for (const defaultUser of DEFAULT_ADMIN_USERS) {
-      if (!users.find((u) => u.email === defaultUser.email)) {
+      const existingUser = users.find((u) => u.email === defaultUser.email)
+      if (!existingUser) {
+        // Add new default user
         users.push(defaultUser)
+        updated = true
+      } else if (!existingUser.role) {
+        // Fix existing user without role
+        existingUser.role = defaultUser.role
         updated = true
       }
     }
@@ -109,9 +115,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
+      // Ensure default users are seeded before login attempt
+      seedDefaultUsers()
+      
       const usersRaw = localStorage.getItem(USERS_KEY)
       const users: Array<User & { password: string }> = usersRaw ? JSON.parse(usersRaw) : []
-      const found = users.find((u) => u.email === email && u.password === password)
+      const found = users.find((u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password)
       if (found) {
         const { password: _, ...userData } = found
         setUser(userData)
