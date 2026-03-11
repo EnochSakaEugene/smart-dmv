@@ -112,18 +112,15 @@ export function AdminSidebar() {
     <Sidebar collapsible="icon" className="border-r border-border">
       <SidebarHeader className="border-b border-border">
         <div className="flex items-center gap-2 px-2 py-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Image
-              src="/dc-flag.png"
-              alt="DC Flag"
-              width={20}
-              height={20}
-              className="rounded-sm"
-            />
-          </div>
-          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-semibold text-foreground">DC DMV Admin</span>
-            <span className="text-xs text-muted-foreground">Management Portal</span>
+          <Image
+            src="/images/dc-dmv-logo.png"
+            alt="DC DMV"
+            width={120}
+            height={40}
+            className="h-8 w-auto group-data-[collapsible=icon]:hidden"
+          />
+          <div className="hidden h-8 w-8 items-center justify-center rounded-lg bg-primary group-data-[collapsible=icon]:flex">
+            <span className="text-xs font-bold text-primary-foreground">DMV</span>
           </div>
         </div>
       </SidebarHeader>

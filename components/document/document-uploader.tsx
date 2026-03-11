@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 
 const DOC_STATUS_KEY = "dmv_document_status"
 const SUPPORT_REQUESTS_KEY = "dmv_support_requests"
+const VERIFICATION_QUEUE_KEY = "dmv_verification_queue"
 
 type UploadStatus = "idle" | "uploaded" | "uploading" | "verifying" | "approved" | "rejected" | "support-requested" | "error"
 
@@ -78,6 +79,42 @@ export function DocumentUploader() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
+
+  // Poll for admin approval/rejection when in verifying or support-requested state
+  useEffect(() => {
+    if (leaseDoc.status !== "verifying" && leaseDoc.status !== "support-requested") {
+      return
+    }
+
+    const checkApproval = setInterval(() => {
+      try {
+        const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
+        if (docStatusRaw) {
+          const docStatus = JSON.parse(docStatusRaw)
+          
+          // Check if admin has approved
+          if (docStatus.leaseDocument?.verified) {
+            setLeaseDoc((prev) => ({
+              ...prev,
+              status: "approved",
+            }))
+          }
+          
+          // Check if admin has rejected
+          if (docStatus.leaseDocument?.rejected && !docStatus.leaseDocument?.supportRequested) {
+            setLeaseDoc((prev) => ({
+              ...prev,
+              status: "rejected",
+            }))
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 1000)
+
+    return () => clearInterval(checkApproval)
+  }, [leaseDoc.status])
 
   const handleFile = useCallback((file: File) => {
     const allowedTypes = [
@@ -153,76 +190,82 @@ export function DocumentUploader() {
       status: "verifying",
     }))
 
-    // Update localStorage to verifying state
+    // Update localStorage to verifying state and add to verification queue
     try {
       const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
       if (docStatusRaw) {
         const docStatus = JSON.parse(docStatusRaw)
+        const submittedAt = new Date().toISOString()
         docStatus.leaseDocument = {
           ...docStatus.leaseDocument,
           verifying: true,
-          submittedAt: new Date().toISOString(),
+          submittedAt,
         }
         localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(docStatus))
+
+        // Add to verification queue for admin dashboard
+        const queueRaw = localStorage.getItem(VERIFICATION_QUEUE_KEY)
+        const queue = queueRaw ? JSON.parse(queueRaw) : []
+        
+        // Check if already in queue
+        const existsInQueue = queue.some((v: { fileName: string; status: string }) => 
+          v.fileName === docStatus.leaseDocument.fileName && v.status === "pending"
+        )
+        
+        if (!existsInQueue) {
+          queue.push({
+            id: `VER-${Date.now()}`,
+            userId: "current-user",
+            userName: "Current User",
+            userEmail: "user@email.com",
+            documentType: "Lease Document",
+            fileName: docStatus.leaseDocument.fileName,
+            status: "pending",
+            submittedAt,
+            aiConfidence: Math.random() * 0.4 + 0.5,
+            isStaffReview: false,
+          })
+          localStorage.setItem(VERIFICATION_QUEUE_KEY, JSON.stringify(queue))
+        }
       }
     } catch {
       // ignore
     }
 
-    // Simulate AI verification (3-5 seconds)
-    // ~30% chance of rejection to demonstrate the flow
-    const willReject = Math.random() < 0.3
-    setTimeout(() => {
-      if (willReject) {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          status: "rejected",
-        }))
-
-        try {
-          const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
-          if (docStatusRaw) {
-            const docStatus = JSON.parse(docStatusRaw)
-            const rejectedDocStatus = {
-              leaseDocument: {
-                ...docStatus.leaseDocument,
-                verified: false,
-                verifying: false,
-                rejected: true,
-                rejectedAt: new Date().toISOString(),
-                rejectionReason: "Document could not be verified. The document may be unclear, expired, or not a valid lease document.",
-              },
-            }
-            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(rejectedDocStatus))
+    // Poll for admin approval/rejection instead of auto-approval
+    const checkApproval = setInterval(() => {
+      try {
+        const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
+        if (docStatusRaw) {
+          const docStatus = JSON.parse(docStatusRaw)
+          
+          // Check if admin has approved
+          if (docStatus.leaseDocument?.verified) {
+            clearInterval(checkApproval)
+            setLeaseDoc((prev) => ({
+              ...prev,
+              status: "approved",
+            }))
           }
-        } catch {
-          // ignore
-        }
-      } else {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          status: "approved",
-        }))
-
-        try {
-          const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
-          if (docStatusRaw) {
-            const docStatus = JSON.parse(docStatusRaw)
-            const updatedDocStatus = {
-              leaseDocument: {
-                ...docStatus.leaseDocument,
-                verified: true,
-                verifying: false,
-                verifiedAt: new Date().toISOString(),
-              },
-            }
-            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(updatedDocStatus))
+          
+          // Check if admin has rejected
+          if (docStatus.leaseDocument?.rejected) {
+            clearInterval(checkApproval)
+            setLeaseDoc((prev) => ({
+              ...prev,
+              status: "rejected",
+            }))
           }
-        } catch {
-          // ignore
         }
+      } catch {
+        // ignore
       }
-    }, 3000 + Math.random() * 2000)
+    }, 1000)
+
+    // Auto-timeout after 60 seconds if no admin action (fallback)
+    setTimeout(() => {
+      clearInterval(checkApproval)
+    }, 60000)
   }, [])
 
   const handleDrop = useCallback(
@@ -264,13 +307,14 @@ export function DocumentUploader() {
     try {
       const existingRaw = localStorage.getItem(SUPPORT_REQUESTS_KEY)
       const existing = existingRaw ? JSON.parse(existingRaw) : []
+      const requestedAt = new Date().toISOString()
 
       const newRequest = {
         id: `req_${Date.now()}`,
         type: "document_verification",
         documentType: "Lease Documents",
         fileName: leaseDoc.fileName,
-        requestedAt: new Date().toISOString(),
+        requestedAt,
         status: "pending",
         userNote: "Document could not be automatically verified. Requesting manual staff review.",
       }
@@ -288,6 +332,31 @@ export function DocumentUploader() {
           supportRequestId: newRequest.id,
         }
         localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(docStatus))
+
+        // Also add to verification queue for admin dashboard with staff review flag
+        const queueRaw = localStorage.getItem(VERIFICATION_QUEUE_KEY)
+        const queue = queueRaw ? JSON.parse(queueRaw) : []
+        
+        // Check if already in queue
+        const existsInQueue = queue.some((v: { fileName: string; status: string }) => 
+          v.fileName === leaseDoc.fileName && v.status === "pending"
+        )
+        
+        if (!existsInQueue) {
+          queue.push({
+            id: `VER-${Date.now()}`,
+            userId: "current-user",
+            userName: "Current User",
+            userEmail: "user@email.com",
+            documentType: "Lease Document",
+            fileName: leaseDoc.fileName,
+            status: "pending",
+            submittedAt: requestedAt,
+            aiConfidence: Math.random() * 0.3 + 0.2, // Lower confidence for staff review
+            isStaffReview: true,
+          })
+          localStorage.setItem(VERIFICATION_QUEUE_KEY, JSON.stringify(queue))
+        }
       }
 
       setLeaseDoc((prev) => ({
