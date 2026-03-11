@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,19 +15,27 @@ import {
 } from "@/components/ui/dialog"
 
 interface AuthModalProps {
-  mode: "login" | "register" | null
+  mode: "login" | "register" | "reset-password" | null
   onClose: () => void
-  onSwitch: (mode: "login" | "register") => void
+  onSwitch: (mode: "login" | "register" | "reset-password") => void
 }
 
 export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
-  const { login, register } = useAuth()
+  const router = useRouter()
+  const { login, register, resetPassword, requestPasswordReset } = useAuth()
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const [loading, setLoading] = useState(false)
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
+
+  // Password reset form state
+  const [resetEmail, setResetEmail] = useState("")
+  const [resetStep, setResetStep] = useState<"email" | "password">("email")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmNewPassword, setConfirmNewPassword] = useState("")
 
   // Register form state
   const [regFirstName, setRegFirstName] = useState("")
@@ -51,7 +60,12 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
     setRegZip("")
     setRegPassword("")
     setRegConfirm("")
+    setResetEmail("")
+    setResetStep("email")
+    setNewPassword("")
+    setConfirmNewPassword("")
     setError("")
+    setSuccess("")
   }
 
   const handleClose = () => {
@@ -63,12 +77,62 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
     e.preventDefault()
     setError("")
     setLoading(true)
-    const success = await login(loginEmail, loginPassword)
+    const result = await login(loginEmail, loginPassword)
     setLoading(false)
-    if (success) {
+    if (result.success) {
       handleClose()
+      // Redirect based on role
+      if (result.role === "admin") {
+        router.push("/admin")
+      } else if (result.role === "staff") {
+        router.push("/staff")
+      }
     } else {
       setError("Invalid email or password. Please try again.")
+    }
+  }
+
+  const handleRequestReset = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setSuccess("")
+    setLoading(true)
+    const result = await requestPasswordReset(resetEmail)
+    setLoading(false)
+    if (result) {
+      setResetStep("password")
+      setSuccess("Verification successful. Please enter your new password.")
+    } else {
+      setError("No account found with this email address.")
+    }
+  }
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setSuccess("")
+    
+    if (newPassword !== confirmNewPassword) {
+      setError("Passwords do not match.")
+      return
+    }
+    
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters.")
+      return
+    }
+    
+    setLoading(true)
+    const result = await resetPassword(resetEmail, newPassword)
+    setLoading(false)
+    if (result) {
+      setSuccess("Password reset successful! You can now log in with your new password.")
+      setTimeout(() => {
+        resetForms()
+        onSwitch("login")
+      }, 2000)
+    } else {
+      setError("Failed to reset password. Please try again.")
     }
   }
 
@@ -150,17 +214,136 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
               >
                 {loading ? "Logging in..." : "Log In"}
               </Button>
-              <p className="text-center text-sm text-muted-foreground">
-                {"Don't have an account? "}
+              <div className="flex flex-col gap-2 text-center text-sm text-muted-foreground">
                 <button
                   type="button"
-                  onClick={() => { resetForms(); onSwitch("register") }}
+                  onClick={() => { resetForms(); onSwitch("reset-password") }}
                   className="font-medium text-primary underline-offset-4 hover:underline"
                 >
-                  Register
+                  Forgot your password?
                 </button>
-              </p>
+                <p>
+                  {"Don't have an account? "}
+                  <button
+                    type="button"
+                    onClick={() => { resetForms(); onSwitch("register") }}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Register
+                  </button>
+                </p>
+              </div>
             </form>
+          </>
+        ) : mode === "reset-password" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-foreground">
+                Reset Password
+              </DialogTitle>
+              <DialogDescription className="text-muted-foreground">
+                {resetStep === "email" 
+                  ? "Enter your email address to reset your password."
+                  : "Create a new password for your account."}
+              </DialogDescription>
+            </DialogHeader>
+            {resetStep === "email" ? (
+              <form onSubmit={handleRequestReset} className="flex flex-col gap-4 pt-2">
+                {error && (
+                  <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {error}
+                  </div>
+                )}
+                {success && (
+                  <div className="rounded border border-green-500/30 bg-green-500/5 px-3 py-2 text-sm text-green-700">
+                    {success}
+                  </div>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="reset-email" className="text-foreground">Email Address</Label>
+                  <Input
+                    id="reset-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {loading ? "Verifying..." : "Continue"}
+                </Button>
+                <p className="text-center text-sm text-muted-foreground">
+                  Remember your password?{" "}
+                  <button
+                    type="button"
+                    onClick={() => { resetForms(); onSwitch("login") }}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Log In
+                  </button>
+                </p>
+              </form>
+            ) : (
+              <form onSubmit={handleResetPassword} className="flex flex-col gap-4 pt-2">
+                {error && (
+                  <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {error}
+                  </div>
+                )}
+                {success && (
+                  <div className="rounded border border-green-500/30 bg-green-500/5 px-3 py-2 text-sm text-green-700">
+                    {success}
+                  </div>
+                )}
+                <div className="rounded-lg bg-muted/50 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Resetting password for:</p>
+                  <p className="text-sm font-medium">{resetEmail}</p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="new-password" className="text-foreground">New Password</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="confirm-new-password" className="text-foreground">Confirm New Password</Label>
+                  <Input
+                    id="confirm-new-password"
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {loading ? "Resetting..." : "Reset Password"}
+                </Button>
+                <p className="text-center text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => { resetForms(); onSwitch("login") }}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Back to Log In
+                  </button>
+                </p>
+              </form>
+            )}
           </>
         ) : mode === "register" ? (
           <>

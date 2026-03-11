@@ -20,7 +20,7 @@ export interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<boolean>
+  login: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole }>
   register: (data: {
     firstName: string
     lastName: string
@@ -32,6 +32,8 @@ interface AuthContextType {
     password: string
   }) => Promise<boolean>
   logout: () => void
+  resetPassword: (email: string, newPassword: string) => Promise<boolean>
+  requestPasswordReset: (email: string) => Promise<boolean>
   isLoading: boolean
 }
 
@@ -113,23 +115,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false)
   }, [])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<{ success: boolean; role?: UserRole }> => {
     try {
       // Ensure default users are seeded before login attempt
       seedDefaultUsers()
       
       const usersRaw = localStorage.getItem(USERS_KEY)
-      const users: Array<User & { password: string }> = usersRaw ? JSON.parse(usersRaw) : []
+      const users: Array<User & { password: string; requiresPasswordReset?: boolean }> = usersRaw ? JSON.parse(usersRaw) : []
       const found = users.find((u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password)
       if (found) {
         const { password: _, ...userData } = found
         setUser(userData)
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(userData))
-        return true
+        return { success: true, role: found.role }
       }
-      return false
+      return { success: false }
     } catch {
-      return false
+      return { success: false }
     }
   }
 
@@ -179,8 +181,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.removeItem(STORAGE_KEY)
   }
 
+  const requestPasswordReset = async (email: string): Promise<boolean> => {
+    try {
+      const usersRaw = localStorage.getItem(USERS_KEY)
+      const users: Array<User & { password: string }> = usersRaw ? JSON.parse(usersRaw) : []
+      const found = users.find((u) => u.email.toLowerCase() === email.toLowerCase())
+      if (found) {
+        // In a real app, this would send an email. For demo, we store a reset token
+        const resetTokens = JSON.parse(localStorage.getItem("dmv_password_resets") || "{}")
+        resetTokens[email.toLowerCase()] = {
+          token: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
+        }
+        localStorage.setItem("dmv_password_resets", JSON.stringify(resetTokens))
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
+  const resetPassword = async (email: string, newPassword: string): Promise<boolean> => {
+    try {
+      const usersRaw = localStorage.getItem(USERS_KEY)
+      const users: Array<User & { password: string; requiresPasswordReset?: boolean }> = usersRaw ? JSON.parse(usersRaw) : []
+      const userIndex = users.findIndex((u) => u.email.toLowerCase() === email.toLowerCase())
+      if (userIndex !== -1) {
+        users[userIndex].password = newPassword
+        users[userIndex].requiresPasswordReset = false
+        localStorage.setItem(USERS_KEY, JSON.stringify(users))
+        
+        // Clear reset token
+        const resetTokens = JSON.parse(localStorage.getItem("dmv_password_resets") || "{}")
+        delete resetTokens[email.toLowerCase()]
+        localStorage.setItem("dmv_password_resets", JSON.stringify(resetTokens))
+        
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, resetPassword, requestPasswordReset, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

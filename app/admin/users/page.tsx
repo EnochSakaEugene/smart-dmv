@@ -92,11 +92,26 @@ export default function UsersPage() {
   const staffCount = users.filter((u) => u.role === "staff").length
   const adminCount = users.filter((u) => u.role === "admin").length
 
+  // Generate temporary password
+  const generateTempPassword = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+    let password = ""
+    for (let i = 0; i < 10; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return password
+  }
+
+  // Email notification state
+  const [showEmailNotification, setShowEmailNotification] = useState(false)
+  const [createdUserEmail, setCreatedUserEmail] = useState("")
+  const [createdUserTempPassword, setCreatedUserTempPassword] = useState("")
+
   // Add user handler
   const handleAddUser = () => {
     setFormError("")
     
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
+    if (!formData.firstName || !formData.lastName || !formData.email) {
       setFormError("Please fill in all required fields")
       return
     }
@@ -107,7 +122,17 @@ export default function UsersPage() {
       return
     }
 
-    const newUser: UserData = {
+    // For staff/admin, generate a temp password if not provided
+    const tempPassword = (formData.role === "staff" || formData.role === "admin") && !formData.password 
+      ? generateTempPassword() 
+      : formData.password
+
+    if (!tempPassword) {
+      setFormError("Please provide a password")
+      return
+    }
+
+    const newUser: UserData & { requiresPasswordReset?: boolean } = {
       id: crypto.randomUUID(),
       firstName: formData.firstName,
       lastName: formData.lastName,
@@ -115,13 +140,21 @@ export default function UsersPage() {
       email: formData.email,
       phone: formData.phone,
       role: formData.role,
-      password: formData.password,
+      password: tempPassword,
+      requiresPasswordReset: formData.role === "staff" || formData.role === "admin",
       createdAt: new Date().toISOString(),
     }
 
     saveUsers([...users, newUser])
     setIsAddModalOpen(false)
     resetForm()
+
+    // Show email notification for staff/admin users
+    if (formData.role === "staff" || formData.role === "admin") {
+      setCreatedUserEmail(formData.email)
+      setCreatedUserTempPassword(tempPassword)
+      setShowEmailNotification(true)
+    }
   }
 
   // Edit user handler
@@ -557,6 +590,63 @@ export default function UsersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDeleteUser}>Delete User</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Notification Modal (for staff/admin creation) */}
+      <Dialog open={showEmailNotification} onOpenChange={setShowEmailNotification}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Account Created Successfully
+            </DialogTitle>
+            <DialogDescription>
+              The user account has been created. Please send the following credentials to the user.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-green-800 mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                Email to send to user:
+              </div>
+              <div className="rounded-md bg-white border border-green-200 p-4 text-sm">
+                <p className="font-medium text-foreground mb-2">Welcome to DC DMV Staff Portal</p>
+                <p className="text-muted-foreground mb-3">Your account has been created. Please use the following credentials to log in:</p>
+                <div className="flex flex-col gap-2 bg-muted/50 rounded-md p-3 font-mono text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Email:</span>
+                    <span className="font-semibold">{createdUserEmail}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Temporary Password:</span>
+                    <span className="font-semibold">{createdUserTempPassword}</span>
+                  </div>
+                </div>
+                <p className="text-muted-foreground mt-3 text-xs">
+                  Please reset your password after your first login by using the "Forgot Password" link on the login page.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-600"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <p className="text-xs text-amber-700">This is a demo. In production, this email would be sent automatically.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                navigator.clipboard.writeText(`Email: ${createdUserEmail}\nTemporary Password: ${createdUserTempPassword}`)
+              }}
+              className="gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy Credentials
+            </Button>
+            <Button onClick={() => setShowEmailNotification(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
