@@ -123,6 +123,37 @@ export function ProfileDropdown() {
 
         <DropdownMenuSeparator />
 
+        {/* Admin Dashboard Link (if admin or staff) */}
+        {(user.role === "admin" || user.role === "staff") && (
+          <div className="px-2 pt-2">
+            <Link href="/admin">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start gap-2 text-primary hover:bg-primary/10 hover:text-primary"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect width="7" height="9" x="3" y="3" rx="1"/>
+                  <rect width="7" height="5" x="14" y="3" rx="1"/>
+                  <rect width="7" height="9" x="14" y="12" rx="1"/>
+                  <rect width="7" height="5" x="3" y="16" rx="1"/>
+                </svg>
+                Admin Dashboard
+              </Button>
+            </Link>
+          </div>
+        )}
+
         {/* Appointment Link (if document verified) */}
         {documentVerified && (
           <div className="px-2 pt-2">

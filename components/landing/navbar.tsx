@@ -90,6 +90,15 @@ export function Navbar() {
                 Appointment
               </Link>
             )}
+            {user && (user.role === "admin" || user.role === "staff") && (
+              <Link 
+                href="/admin" 
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+                Admin Dashboard
+              </Link>
+            )}
           </nav>
 
           {/* Auth buttons / Profile */}

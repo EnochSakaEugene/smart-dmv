@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 
+export type UserRole = "resident" | "staff" | "admin"
+
 export interface User {
   id: string
   firstName: string
@@ -12,6 +14,7 @@ export interface User {
   address?: string
   city?: string
   zip?: string
+  role: UserRole
   createdAt: string
 }
 
@@ -37,11 +40,62 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const STORAGE_KEY = "dmv_auth_user"
 const USERS_KEY = "dmv_users"
 
+// Default admin users (seeded on first load)
+const DEFAULT_ADMIN_USERS: Array<User & { password: string }> = [
+  {
+    id: "admin-001",
+    firstName: "System",
+    lastName: "Administrator",
+    name: "System Administrator",
+    email: "admin@dcdmv.gov",
+    phone: "202-555-0100",
+    role: "admin",
+    password: "admin123",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "staff-001",
+    firstName: "Staff",
+    lastName: "Member",
+    name: "Staff Member",
+    email: "staff@dcdmv.gov",
+    phone: "202-555-0101",
+    role: "staff",
+    password: "staff123",
+    createdAt: new Date().toISOString(),
+  },
+]
+
+// Seed default users if not present
+function seedDefaultUsers() {
+  try {
+    const usersRaw = localStorage.getItem(USERS_KEY)
+    const users: Array<User & { password: string }> = usersRaw ? JSON.parse(usersRaw) : []
+    
+    let updated = false
+    for (const defaultUser of DEFAULT_ADMIN_USERS) {
+      if (!users.find((u) => u.email === defaultUser.email)) {
+        users.push(defaultUser)
+        updated = true
+      }
+    }
+    
+    if (updated) {
+      localStorage.setItem(USERS_KEY, JSON.stringify(users))
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    // Seed default admin/staff users
+    seedDefaultUsers()
+    
     try {
       const stored = sessionStorage.getItem(STORAGE_KEY)
       if (stored) {
@@ -96,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         address: data.address || "",
         city: data.city || "",
         zip: data.zip || "",
+        role: "resident" as UserRole,
         password: data.password,
         createdAt: new Date().toISOString(),
       }
