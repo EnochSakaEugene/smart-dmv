@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
@@ -10,52 +10,157 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 
 const DOC_STATUS_KEY = "dmv_document_status"
-const APP_STATUS_KEY = "dmv_application_status"
 const APPOINTMENT_KEY = "dmv_appointment"
+const BOOKINGS_KEY = "dmv_all_bookings"
 
-interface TimeSlot {
-  time: string
-  available: boolean
+// Real DC DMV Locations from https://dmv.dc.gov/page/all-dc-dmv-locations
+const DMV_LOCATIONS = [
+  {
+    id: "benning-ridge",
+    name: "Benning Ridge Service Center",
+    address: "4525 Benning Road, SE",
+    city: "Washington, DC 20019",
+    type: "Service Center",
+    hours: "Mon-Fri: 8:15 AM - 4:00 PM",
+    services: ["License Services", "Vehicle Registration", "ID Cards"],
+  },
+  {
+    id: "georgetown",
+    name: "Georgetown Service Center",
+    address: "3270 M Street, NW, Canal Level – Suite C200",
+    city: "Washington, DC 20007",
+    type: "Service Center",
+    hours: "Mon-Fri: 8:15 AM - 4:00 PM",
+    services: ["License Services", "Vehicle Registration", "ID Cards"],
+  },
+  {
+    id: "rhode-island",
+    name: "Rhode Island Service Center",
+    address: "2350 Washington Place, NE, Suite 112N",
+    city: "Washington, DC 20018",
+    type: "Service Center",
+    hours: "Mon-Fri: 8:15 AM - 4:00 PM",
+    services: ["License Services", "Vehicle Registration", "ID Cards"],
+  },
+  {
+    id: "southwest",
+    name: "Southwest Service Center",
+    address: "95 M Street, SW",
+    city: "Washington, DC 20024",
+    type: "Service Center",
+    hours: "Mon-Fri: 8:15 AM - 4:00 PM",
+    services: ["License Services", "Vehicle Registration", "ID Cards"],
+  },
+  {
+    id: "inspection-station",
+    name: "Inspection Station",
+    address: "1001 Half Street, SW",
+    city: "Washington, DC 20024",
+    type: "Inspection",
+    hours: "Mon-Fri: 6:00 AM - 7:00 PM, Sat: 7:00 AM - 2:00 PM",
+    services: ["Vehicle Inspection"],
+  },
+  {
+    id: "adjudication",
+    name: "Adjudication Services",
+    address: "955 L'Enfant Plaza, SW, Promenade Level – Suite P100",
+    city: "Washington, DC 20024",
+    type: "Adjudication",
+    hours: "Mon-Fri: 8:30 AM - 4:00 PM",
+    services: ["Ticket Adjudication", "Hearings"],
+  },
+]
+
+// Generate time slots based on location type
+const generateTimeSlots = (locationType: string, date: Date) => {
+  const slots: { time: string; available: boolean }[] = []
+  const dayOfWeek = date.getDay()
+  
+  if (locationType === "Inspection") {
+    // Inspection station has longer hours
+    if (dayOfWeek === 6) {
+      // Saturday
+      const saturdaySlots = ["7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM"]
+      saturdaySlots.forEach((time) => {
+        slots.push({ time, available: Math.random() > 0.3 })
+      })
+    } else {
+      // Weekdays
+      const weekdaySlots = ["6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM"]
+      weekdaySlots.forEach((time) => {
+        slots.push({ time, available: Math.random() > 0.25 })
+      })
+    }
+  } else {
+    // Regular service centers
+    const regularSlots = ["8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM"]
+    regularSlots.forEach((time) => {
+      slots.push({ time, available: Math.random() > 0.3 })
+    })
+  }
+  
+  return slots
 }
 
-const TIME_SLOTS: TimeSlot[] = [
-  { time: "9:00 AM", available: true },
-  { time: "9:30 AM", available: true },
-  { time: "10:00 AM", available: false },
-  { time: "10:30 AM", available: true },
-  { time: "11:00 AM", available: true },
-  { time: "11:30 AM", available: false },
-  { time: "1:00 PM", available: true },
-  { time: "1:30 PM", available: true },
-  { time: "2:00 PM", available: true },
-  { time: "2:30 PM", available: false },
-  { time: "3:00 PM", available: true },
-  { time: "3:30 PM", available: true },
-  { time: "4:00 PM", available: true },
-  { time: "4:30 PM", available: false },
-]
-
-const DMV_LOCATIONS = [
-  { id: "georgetown", name: "Georgetown DMV", address: "3222 M St NW, Washington, DC 20007" },
-  { id: "penn-branch", name: "Penn Branch DMV", address: "3220 Pennsylvania Ave SE, Washington, DC 20020" },
-  { id: "rhode-island", name: "Rhode Island DMV", address: "1023 Brentwood Rd NE, Washington, DC 20018" },
-]
+interface Appointment {
+  id: string
+  userId: string
+  userName: string
+  userEmail: string
+  date: string
+  time: string
+  locationId: string
+  locationName: string
+  locationAddress: string
+  bookedAt: string
+  status: "scheduled" | "completed" | "cancelled" | "no-show"
+  staffId?: string
+  staffName?: string
+  completedAt?: string
+  documentFileName?: string
+}
 
 export default function AppointmentPage() {
   const { user, isLoading } = useAuth()
   const router = useRouter()
   const [ready, setReady] = useState(false)
   const [documentVerified, setDocumentVerified] = useState(false)
+  const [documentFileName, setDocumentFileName] = useState("")
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
-  const [selectedTime, setSelectedTime] = useState<string | null>(null)
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
+  const [selectedTime, setSelectedTime] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [appointmentBooked, setAppointmentBooked] = useState(false)
-  const [existingAppointment, setExistingAppointment] = useState<{
-    date: string
-    time: string
-    location: string
-  } | null>(null)
+  const [existingAppointment, setExistingAppointment] = useState<Appointment | null>(null)
+
+  // Calculate max date (1 month from now)
+  const maxDate = useMemo(() => {
+    const date = new Date()
+    date.setMonth(date.getMonth() + 1)
+    return date
+  }, [])
+
+  // Get available locations for selected date
+  const availableLocations = useMemo(() => {
+    if (!selectedDate) return []
+    const dayOfWeek = selectedDate.getDay()
+    
+    return DMV_LOCATIONS.filter((loc) => {
+      // Inspection station open on Saturdays
+      if (loc.type === "Inspection" && dayOfWeek === 6) return true
+      // Other locations closed on weekends
+      if (dayOfWeek === 0 || dayOfWeek === 6) return false
+      return true
+    })
+  }, [selectedDate])
+
+  // Get time slots for selected location and date
+  const timeSlots = useMemo(() => {
+    if (!selectedDate || !selectedLocation) return []
+    const location = DMV_LOCATIONS.find((l) => l.id === selectedLocation)
+    if (!location) return []
+    return generateTimeSlots(location.type, selectedDate)
+  }, [selectedDate, selectedLocation])
 
   useEffect(() => {
     if (!isLoading) {
@@ -71,6 +176,7 @@ export default function AppointmentPage() {
           const docStatus = JSON.parse(docStatusRaw)
           if (docStatus.leaseDocument?.verified) {
             setDocumentVerified(true)
+            setDocumentFileName(docStatus.leaseDocument.fileName || "")
           }
         }
 
@@ -78,8 +184,10 @@ export default function AppointmentPage() {
         const appointmentRaw = localStorage.getItem(APPOINTMENT_KEY)
         if (appointmentRaw) {
           const appointment = JSON.parse(appointmentRaw)
-          setExistingAppointment(appointment)
-          setAppointmentBooked(true)
+          if (appointment.status !== "cancelled") {
+            setExistingAppointment(appointment)
+            setAppointmentBooked(true)
+          }
         }
       } catch {
         // ignore
@@ -90,41 +198,71 @@ export default function AppointmentPage() {
   }, [user, isLoading, router])
 
   const handleBookAppointment = () => {
-    if (!selectedDate || !selectedTime || !selectedLocation) return
+    if (!selectedDate || !selectedTime || !selectedLocation || !user) return
 
     setIsSubmitting(true)
 
-    // Simulate API call
     setTimeout(() => {
-      const locationData = DMV_LOCATIONS.find(l => l.id === selectedLocation)
-      const appointment = {
+      const locationData = DMV_LOCATIONS.find((l) => l.id === selectedLocation)
+      const appointment: Appointment = {
+        id: `APT-${Date.now()}`,
+        userId: user.id,
+        userName: user.name,
+        userEmail: user.email,
         date: selectedDate.toISOString(),
         time: selectedTime,
-        location: locationData?.name || "",
-        locationAddress: locationData?.address || "",
+        locationId: selectedLocation,
+        locationName: locationData?.name || "",
+        locationAddress: `${locationData?.address}, ${locationData?.city}` || "",
         bookedAt: new Date().toISOString(),
+        status: "scheduled",
+        documentFileName,
       }
 
+      // Save to user's appointment
       localStorage.setItem(APPOINTMENT_KEY, JSON.stringify(appointment))
 
-      // Update application status
+      // Add to global bookings list for staff/admin
       try {
-        const statusRaw = localStorage.getItem(APP_STATUS_KEY)
-        const status = statusRaw ? JSON.parse(statusRaw) : {}
-        status.appointmentScheduled = true
-        localStorage.setItem(APP_STATUS_KEY, JSON.stringify(status))
+        const bookingsRaw = localStorage.getItem(BOOKINGS_KEY)
+        const bookings: Appointment[] = bookingsRaw ? JSON.parse(bookingsRaw) : []
+        bookings.push(appointment)
+        localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings))
       } catch {
         // ignore
       }
 
-      setExistingAppointment({
-        date: appointment.date,
-        time: appointment.time,
-        location: appointment.location,
-      })
+      setExistingAppointment(appointment)
       setAppointmentBooked(true)
       setIsSubmitting(false)
     }, 1500)
+  }
+
+  const handleCancelAppointment = () => {
+    if (!existingAppointment) return
+
+    // Update status to cancelled
+    const updated = { ...existingAppointment, status: "cancelled" as const }
+    localStorage.setItem(APPOINTMENT_KEY, JSON.stringify(updated))
+
+    // Update global bookings
+    try {
+      const bookingsRaw = localStorage.getItem(BOOKINGS_KEY)
+      const bookings: Appointment[] = bookingsRaw ? JSON.parse(bookingsRaw) : []
+      const index = bookings.findIndex((b) => b.id === existingAppointment.id)
+      if (index !== -1) {
+        bookings[index] = updated
+        localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings))
+      }
+    } catch {
+      // ignore
+    }
+
+    setAppointmentBooked(false)
+    setExistingAppointment(null)
+    setSelectedDate(undefined)
+    setSelectedLocation(null)
+    setSelectedTime(null)
   }
 
   if (isLoading || !ready) {
@@ -195,6 +333,7 @@ export default function AppointmentPage() {
               </div>
               <h2 className="text-xl font-bold text-green-800">Appointment Confirmed!</h2>
               <p className="mt-2 text-sm text-green-700">Your DMV appointment has been successfully scheduled.</p>
+              <p className="mt-1 text-xs text-green-600">Confirmation #: {existingAppointment.id}</p>
 
               <div className="mt-6 rounded-lg border border-green-200 bg-white p-6 text-left">
                 <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">Appointment Details</h3>
@@ -224,7 +363,8 @@ export default function AppointmentPage() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-primary"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
                     <div>
                       <p className="text-xs text-muted-foreground">Location</p>
-                      <p className="text-sm font-medium text-foreground">{existingAppointment.location}</p>
+                      <p className="text-sm font-medium text-foreground">{existingAppointment.locationName}</p>
+                      <p className="text-xs text-muted-foreground">{existingAppointment.locationAddress}</p>
                     </div>
                   </div>
                 </div>
@@ -237,24 +377,34 @@ export default function AppointmentPage() {
                     <p className="text-xs font-semibold text-blue-800">What to bring</p>
                     <ul className="mt-1 text-xs text-blue-700 list-disc list-inside">
                       <li>Valid identification (passport, state ID)</li>
-                      <li>Proof of residency (same document you uploaded)</li>
+                      <li>Proof of residency (your uploaded document)</li>
                       <li>Payment for applicable fees</li>
+                      <li>Confirmation number: {existingAppointment.id}</li>
                     </ul>
                   </div>
                 </div>
               </div>
 
-              <Button
-                onClick={() => {
-                  localStorage.removeItem(APPOINTMENT_KEY)
-                  setAppointmentBooked(false)
-                  setExistingAppointment(null)
-                }}
-                variant="outline"
-                className="mt-6"
-              >
-                Reschedule Appointment
-              </Button>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <Button
+                  onClick={() => {
+                    setAppointmentBooked(false)
+                    setExistingAppointment(null)
+                    setSelectedDate(undefined)
+                    setSelectedLocation(null)
+                    setSelectedTime(null)
+                  }}
+                  variant="outline"
+                >
+                  Reschedule
+                </Button>
+                <Button
+                  onClick={handleCancelAppointment}
+                  variant="destructive"
+                >
+                  Cancel Appointment
+                </Button>
+              </div>
             </div>
           </div>
         </main>
@@ -281,13 +431,13 @@ export default function AppointmentPage() {
       </div>
 
       <main className="flex-1">
-        <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+        <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
           <div className="mb-6 text-center">
             <h1 className="text-xl font-bold uppercase tracking-wide text-foreground sm:text-2xl">
               Schedule Your Appointment
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Select a date, time, and location for your DMV visit.
+              Select a date to see available DC DMV locations and times. You can book up to 1 month in advance.
             </p>
           </div>
 
@@ -298,102 +448,185 @@ export default function AppointmentPage() {
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><polyline points="20 6 9 17 4 12" /></svg>
               </div>
               <div>
-                <p className="text-sm font-semibold text-green-800">Document Upload Successful</p>
+                <p className="text-sm font-semibold text-green-800">Document Verification Complete</p>
                 <p className="text-xs text-green-700">Your documents have been verified. You can now schedule your appointment.</p>
               </div>
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Calendar Section */}
-            <div className="rounded-lg border border-border bg-card p-6">
-              <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-foreground">Select Date</h3>
+          {/* Step 1: Select Date */}
+          <div className="mb-6 rounded-lg border border-border bg-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">1</div>
+              <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">Select Date</h3>
+            </div>
+            <div className="flex justify-center">
               <Calendar
                 mode="single"
                 selected={selectedDate}
-                onSelect={setSelectedDate}
+                onSelect={(date) => {
+                  setSelectedDate(date)
+                  setSelectedLocation(null)
+                  setSelectedTime(null)
+                }}
                 disabled={(date) => {
                   const today = new Date()
                   today.setHours(0, 0, 0, 0)
                   const dayOfWeek = date.getDay()
-                  return date < today || dayOfWeek === 0 || dayOfWeek === 6
+                  // Disable past dates, Sundays, and dates more than 1 month out
+                  // Saturdays only for Inspection station
+                  return date < today || date > maxDate || dayOfWeek === 0
                 }}
                 className="rounded-md border"
               />
             </div>
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              Note: Most locations are closed on weekends. Inspection Station is open on Saturdays.
+            </p>
+          </div>
 
-            {/* Time & Location Section */}
-            <div className="flex flex-col gap-6">
-              {/* Time Slots */}
-              <div className="rounded-lg border border-border bg-card p-6">
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-foreground">Select Time</h3>
-                {selectedDate ? (
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                    {TIME_SLOTS.map((slot) => (
-                      <button
-                        key={slot.time}
-                        onClick={() => slot.available && setSelectedTime(slot.time)}
-                        disabled={!slot.available}
-                        className={`rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
-                          selectedTime === slot.time
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : slot.available
-                              ? "border-border bg-background text-foreground hover:border-primary hover:bg-primary/5"
-                              : "border-muted bg-muted text-muted-foreground cursor-not-allowed line-through"
-                        }`}
-                      >
-                        {slot.time}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Please select a date first</p>
-                )}
+          {/* Step 2: Select Location */}
+          {selectedDate && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">2</div>
+                <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">Select Location</h3>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+                </span>
               </div>
-
-              {/* Location */}
-              <div className="rounded-lg border border-border bg-card p-6">
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-foreground">Select Location</h3>
-                <div className="flex flex-col gap-2">
-                  {DMV_LOCATIONS.map((location) => (
+              
+              {availableLocations.length === 0 ? (
+                <div className="rounded-md bg-amber-50 border border-amber-200 p-4 text-center">
+                  <p className="text-sm text-amber-700">No locations available on this date. Please select a different date.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {availableLocations.map((location) => (
                     <button
                       key={location.id}
-                      onClick={() => setSelectedLocation(location.id)}
-                      className={`rounded-md border p-4 text-left transition-colors ${
+                      onClick={() => {
+                        setSelectedLocation(location.id)
+                        setSelectedTime(null)
+                      }}
+                      className={`rounded-lg border p-4 text-left transition-all ${
                         selectedLocation === location.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border bg-background hover:border-primary/50"
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-border bg-background hover:border-primary/50 hover:bg-muted/50"
                       }`}
                     >
-                      <p className="text-sm font-semibold text-foreground">{location.name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{location.address}</p>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{location.name}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{location.address}</p>
+                          <p className="text-xs text-muted-foreground">{location.city}</p>
+                        </div>
+                        {selectedLocation === location.id && (
+                          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-primary-foreground"><polyline points="20 6 9 17 4 12" /></svg>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {location.type}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[10px] text-muted-foreground">{location.hours}</p>
                     </button>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Select Time */}
+          {selectedDate && selectedLocation && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold">3</div>
+                <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">Select Time</h3>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {DMV_LOCATIONS.find((l) => l.id === selectedLocation)?.name}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
+                {timeSlots.map((slot) => (
+                  <button
+                    key={slot.time}
+                    onClick={() => slot.available && setSelectedTime(slot.time)}
+                    disabled={!slot.available}
+                    className={`rounded-md border px-3 py-2.5 text-xs font-medium transition-colors ${
+                      selectedTime === slot.time
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : slot.available
+                          ? "border-border bg-background text-foreground hover:border-primary hover:bg-primary/5"
+                          : "border-muted bg-muted text-muted-foreground/50 cursor-not-allowed"
+                    }`}
+                  >
+                    {slot.time}
+                    {!slot.available && <span className="block text-[9px]">Booked</span>}
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Submit Button */}
-          <div className="mt-8 flex justify-center">
-            <Button
-              onClick={handleBookAppointment}
-              disabled={!selectedDate || !selectedTime || !selectedLocation || isSubmitting}
-              className="gap-2 px-8"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                  Booking...
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><polyline points="9 16 11 18 15 14" /></svg>
-                  Book Appointment
-                </>
-              )}
-            </Button>
-          </div>
+          {/* Summary & Submit */}
+          {selectedDate && selectedLocation && selectedTime && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-6">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-foreground mb-4">Appointment Summary</h3>
+              <div className="grid gap-4 sm:grid-cols-3 mb-6">
+                <div className="flex items-center gap-3 rounded-md bg-background p-3 border border-border">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-primary"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Date</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {selectedDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-md bg-background p-3 border border-border">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-primary"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Time</p>
+                    <p className="text-sm font-medium text-foreground">{selectedTime}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-md bg-background p-3 border border-border">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-primary"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Location</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {DMV_LOCATIONS.find((l) => l.id === selectedLocation)?.name}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <Button
+                  onClick={handleBookAppointment}
+                  disabled={isSubmitting}
+                  size="lg"
+                  className="gap-2 px-8"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                      Booking...
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><polyline points="9 16 11 18 15 14" /></svg>
+                      Confirm Appointment
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
