@@ -95,10 +95,10 @@ export function ProgressSidebar() {
             setSteps((prev) =>
               prev.map((step) => {
                 if (step.label === "Document Upload") {
-                  return { ...step, status: "completed" as const }
+                  return { ...step, status: "in-progress" as const, description: "Ready to submit" }
                 }
                 if (step.label === "Document Verification") {
-                  return { ...step, status: "pending" as const, description: "Ready for submission" }
+                  return { ...step, status: "pending" as const, description: "Waiting for submission" }
                 }
                 return step
               })
