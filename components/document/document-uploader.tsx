@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useRef, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 
 const DOC_STATUS_KEY = "dmv_document_status"
 const SUPPORT_REQUESTS_KEY = "dmv_support_requests"
 
-type UploadStatus = "idle" | "uploading" | "verifying" | "approved" | "rejected" | "support-requested" | "error"
+type UploadStatus = "idle" | "uploaded" | "uploading" | "verifying" | "approved" | "rejected" | "support-requested" | "error"
 
 interface DocumentState {
   file: File | null
@@ -16,6 +17,7 @@ interface DocumentState {
 }
 
 export function DocumentUploader() {
+  const router = useRouter()
   const [leaseDoc, setLeaseDoc] = useState<DocumentState>(() => {
     // Check if already uploaded
     try {
@@ -46,11 +48,19 @@ export function DocumentUploader() {
             progress: 100,
           }
         }
-        if (status.leaseDocument?.uploaded) {
+        if (status.leaseDocument?.verifying) {
           return {
             file: null,
             fileName: status.leaseDocument.fileName || "Document",
             status: "verifying" as UploadStatus,
+            progress: 100,
+          }
+        }
+        if (status.leaseDocument?.uploaded) {
+          return {
+            file: null,
+            fileName: status.leaseDocument.fileName || "Document",
+            status: "uploaded" as UploadStatus,
             progress: 100,
           }
         }
@@ -113,11 +123,11 @@ export function DocumentUploader() {
 
         setLeaseDoc((prev) => ({
           ...prev,
-          status: "verifying",
+          status: "uploaded",
           progress: 100,
         }))
 
-        // Save uploaded status
+        // Save uploaded status (not yet submitted for verification)
         const docStatus = {
           leaseDocument: {
             uploaded: true,
@@ -127,47 +137,6 @@ export function DocumentUploader() {
           },
         }
         localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(docStatus))
-
-        // Simulate AI verification (3-5 seconds)
-        // ~30% chance of rejection to demonstrate the flow
-        const willReject = Math.random() < 0.3
-        setTimeout(() => {
-          if (willReject) {
-            setLeaseDoc((prev) => ({
-              ...prev,
-              status: "rejected",
-            }))
-
-            const rejectedDocStatus = {
-              leaseDocument: {
-                uploaded: true,
-                verified: false,
-                rejected: true,
-                fileName: file.name,
-                uploadedAt: new Date().toISOString(),
-                rejectedAt: new Date().toISOString(),
-                rejectionReason: "Document could not be verified. The document may be unclear, expired, or not a valid lease document.",
-              },
-            }
-            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(rejectedDocStatus))
-          } else {
-            setLeaseDoc((prev) => ({
-              ...prev,
-              status: "approved",
-            }))
-
-            const updatedDocStatus = {
-              leaseDocument: {
-                uploaded: true,
-                verified: true,
-                fileName: file.name,
-                uploadedAt: new Date().toISOString(),
-                verifiedAt: new Date().toISOString(),
-              },
-            }
-            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(updatedDocStatus))
-          }
-        }, 3000 + Math.random() * 2000)
       } else {
         setLeaseDoc((prev) => ({
           ...prev,
@@ -175,6 +144,85 @@ export function DocumentUploader() {
         }))
       }
     }, 200)
+  }, [])
+
+  // Submit document for AI verification
+  const handleSubmitForVerification = useCallback(() => {
+    setLeaseDoc((prev) => ({
+      ...prev,
+      status: "verifying",
+    }))
+
+    // Update localStorage to verifying state
+    try {
+      const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
+      if (docStatusRaw) {
+        const docStatus = JSON.parse(docStatusRaw)
+        docStatus.leaseDocument = {
+          ...docStatus.leaseDocument,
+          verifying: true,
+          submittedAt: new Date().toISOString(),
+        }
+        localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(docStatus))
+      }
+    } catch {
+      // ignore
+    }
+
+    // Simulate AI verification (3-5 seconds)
+    // ~30% chance of rejection to demonstrate the flow
+    const willReject = Math.random() < 0.3
+    setTimeout(() => {
+      if (willReject) {
+        setLeaseDoc((prev) => ({
+          ...prev,
+          status: "rejected",
+        }))
+
+        try {
+          const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
+          if (docStatusRaw) {
+            const docStatus = JSON.parse(docStatusRaw)
+            const rejectedDocStatus = {
+              leaseDocument: {
+                ...docStatus.leaseDocument,
+                verified: false,
+                verifying: false,
+                rejected: true,
+                rejectedAt: new Date().toISOString(),
+                rejectionReason: "Document could not be verified. The document may be unclear, expired, or not a valid lease document.",
+              },
+            }
+            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(rejectedDocStatus))
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        setLeaseDoc((prev) => ({
+          ...prev,
+          status: "approved",
+        }))
+
+        try {
+          const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
+          if (docStatusRaw) {
+            const docStatus = JSON.parse(docStatusRaw)
+            const updatedDocStatus = {
+              leaseDocument: {
+                ...docStatus.leaseDocument,
+                verified: true,
+                verifying: false,
+                verifiedAt: new Date().toISOString(),
+              },
+            }
+            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(updatedDocStatus))
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }, 3000 + Math.random() * 2000)
   }, [])
 
   const handleDrop = useCallback(
@@ -265,6 +313,12 @@ export function DocumentUploader() {
               <p className="text-xs text-muted-foreground">Proof of residency - lease agreement or utility bill</p>
             </div>
           </div>
+          {leaseDoc.status === "uploaded" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              Ready
+            </span>
+          )}
           {leaseDoc.status === "approved" && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
@@ -272,9 +326,12 @@ export function DocumentUploader() {
             </span>
           )}
           {leaseDoc.status === "verifying" && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber-700 border-t-transparent" />
-              Verifying
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 animate-pulse">
+              <span className="relative flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75"></span>
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-600"></span>
+              </span>
+              AI Verifying
             </span>
           )}
           {leaseDoc.status === "rejected" && (
@@ -355,21 +412,67 @@ export function DocumentUploader() {
                 />
               </div>
             </div>
-          ) : leaseDoc.status === "verifying" ? (
-            /* Verifying state */
-            <div className="flex flex-col gap-4 rounded-lg border border-amber-200 bg-amber-50 p-5">
+          ) : leaseDoc.status === "uploaded" ? (
+            /* Uploaded state - ready for submission */
+            <div className="flex flex-col gap-4 rounded-lg border border-blue-200 bg-blue-50 p-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
-                  <div className="h-5 w-5 animate-spin rounded-full border-3 border-amber-600 border-t-transparent" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><polyline points="20 6 9 17 4 12" /></svg>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{leaseDoc.fileName}</p>
-                  <p className="text-xs text-amber-700">AI Agent is verifying your document...</p>
+                  <p className="text-xs text-blue-700">Document uploaded successfully</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 rounded-md bg-amber-100/60 px-3 py-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-amber-600"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-                <p className="text-xs text-amber-700">Please wait while we verify your document. This usually takes a few seconds.</p>
+              <div className="flex items-center gap-2 rounded-md bg-blue-100/60 px-3 py-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-600"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                <p className="text-xs text-blue-700">Your document is ready. Click submit to start AI verification.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSubmitForVerification}
+                  className="gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>
+                  Submit for Verification
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReset}
+                  className="gap-1.5 text-xs"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
+                  Change Document
+                </Button>
+              </div>
+            </div>
+          ) : leaseDoc.status === "verifying" ? (
+            /* Verifying state - with beeping red indicator */
+            <div className="flex flex-col gap-4 rounded-lg border-2 border-red-300 bg-red-50 p-5 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="relative text-red-600"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{leaseDoc.fileName}</p>
+                  <p className="text-xs font-semibold text-red-700">AI Agent is verifying your document...</p>
+                </div>
+                <span className="relative flex h-4 w-4">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75"></span>
+                  <span className="relative inline-flex h-4 w-4 rounded-full bg-red-600"></span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2 rounded-md bg-red-100 px-3 py-2 border border-red-200">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-red-600 animate-pulse"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                <p className="text-xs text-red-700 font-medium">Document Verification in progress. Please wait while AI verifies your document...</p>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-red-200">
+                <div className="h-full w-full rounded-full bg-red-500 animate-[progress_2s_ease-in-out_infinite]" style={{ transformOrigin: 'left', animation: 'progress 2s ease-in-out infinite' }} />
               </div>
             </div>
           ) : leaseDoc.status === "approved" ? (
@@ -386,18 +489,29 @@ export function DocumentUploader() {
               </div>
               <div className="flex items-center gap-2 rounded-md bg-green-100/60 px-3 py-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
-                <p className="text-xs text-green-700">Your lease document has been verified by our AI agent and approved.</p>
+                <p className="text-xs text-green-700">Your lease document has been verified by our AI agent and approved. You can now proceed to schedule your appointment.</p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleReset}
-                className="self-start gap-1.5 text-xs"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
-                Upload a different document
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => router.push("/appointment")}
+                  className="gap-1.5 bg-green-600 text-xs text-white hover:bg-green-700"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+                  Proceed to Schedule Appointment
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReset}
+                  className="gap-1.5 text-xs"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
+                  Upload a different document
+                </Button>
+              </div>
             </div>
           ) : leaseDoc.status === "rejected" ? (
             /* Rejected state */
