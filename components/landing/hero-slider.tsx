@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import { useState, useEffect, useCallback } from "react"
-import Image from "next/image"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/lib/auth-context"
-import { Button } from "@/components/ui/button"
-import { AuthModal } from "@/components/landing/auth-modal"
+import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
+import { Button } from "@/components/ui/button";
+import { AuthModal } from "@/components/landing/auth-modal";
 
 const slides = [
   {
@@ -23,35 +23,49 @@ const slides = [
     title: "Fast. Secure. Convenient.",
     subtitle: "AI-powered document verification saves you time and hassle",
   },
-]
+];
 
 export function HeroSlider() {
-  const [current, setCurrent] = useState(0)
-  const { user } = useAuth()
-  const router = useRouter()
-  const [authModal, setAuthModal] = useState<"login" | "register" | null>(null)
+  const [current, setCurrent] = useState(0);
+  const { user } = useAuth();
+  const router = useRouter();
+  const [authModal, setAuthModal] = useState<"login" | "register" | null>(null);
 
   const next = useCallback(() => {
-    setCurrent((c) => (c + 1) % slides.length)
-  }, [])
+    setCurrent((c) => (c + 1) % slides.length);
+  }, []);
 
   useEffect(() => {
-    const timer = setInterval(next, 5000)
-    return () => clearInterval(timer)
-  }, [next])
+    const timer = setInterval(next, 5000);
+    return () => clearInterval(timer);
+  }, [next]);
 
-  const handleStartVerification = () => {
-    if (user) {
-      router.push("/application")
-    } else {
-      setAuthModal("login")
+  const handleStartVerification = async () => {
+    if (!user) {
+      setAuthModal("login");
+      return;
     }
-  }
+
+    try {
+      const res = await fetch("/application/status", {
+        credentials: "include",
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (data?.formSubmitted) {
+        router.push("/document-upload");
+      } else {
+        router.push("/application");
+      }
+    } catch {
+      router.push("/application");
+    }
+  };
 
   return (
     <>
       <section className="relative h-[400px] overflow-hidden sm:h-[480px] lg:h-[540px]">
-        {/* Slides */}
         <div
           className="flex h-full transition-transform duration-700 ease-in-out"
           style={{ transform: `translateX(-${current * 100}%)` }}
@@ -70,7 +84,6 @@ export function HeroSlider() {
           ))}
         </div>
 
-        {/* Content overlay */}
         <div className="absolute inset-0 flex items-center">
           <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
             <div className="max-w-xl">
@@ -83,7 +96,7 @@ export function HeroSlider() {
               <div className="mt-6 flex flex-wrap gap-3">
                 <Button
                   size="lg"
-                  onClick={handleStartVerification}
+                  onClick={() => void handleStartVerification()}
                   className="bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
                 >
                   Start Document Verification
@@ -102,7 +115,6 @@ export function HeroSlider() {
           </div>
         </div>
 
-        {/* Dot indicators */}
         <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-2">
           {slides.map((slide, i) => (
             <button
@@ -118,7 +130,6 @@ export function HeroSlider() {
           ))}
         </div>
 
-        {/* Arrow controls */}
         <button
           onClick={() => setCurrent((c) => (c - 1 + slides.length) % slides.length)}
           className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-accent/40 text-accent-foreground transition-colors hover:bg-accent/60"
@@ -126,6 +137,7 @@ export function HeroSlider() {
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
+
         <button
           onClick={next}
           className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-accent/40 text-accent-foreground transition-colors hover:bg-accent/60"
@@ -141,5 +153,5 @@ export function HeroSlider() {
         onSwitch={(mode) => setAuthModal(mode)}
       />
     </>
-  )
+  );
 }

@@ -6,12 +6,18 @@ function getSecret() {
   return secret;
 }
 
-export function signSession(payload: { userId: string; email: string }) {
+export type SessionPayload = {
+  userId: string;
+  email: string;
+  role: "RESIDENT" | "STAFF" | "ADMIN";
+};
+
+export function signSession(payload: SessionPayload) {
   return jwt.sign(payload, getSecret(), { expiresIn: "7d" });
 }
 
 export function verifySession(token: string) {
   const decoded = jwt.verify(token, getSecret());
   if (typeof decoded === "string") throw new Error("Invalid token payload");
-  return decoded as { userId: string; email: string; iat: number; exp: number };
+  return decoded as SessionPayload & { iat: number; exp: number };
 }

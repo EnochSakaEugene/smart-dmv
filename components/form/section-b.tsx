@@ -1,25 +1,43 @@
-"use client"
+"use client";
 
 export interface SectionBDefaults {
-  firstName?: string
-  lastName?: string
-  email?: string
-  phone?: string
-  address?: string
-  city?: string
-  zip?: string
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  zip?: string;
 }
 
-function FormField({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
+function FormField({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
-      <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{label}</label>
+      <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </label>
       {children}
     </div>
-  )
+  );
 }
 
-function TextInput({ name, defaultValue = "", className = "" }: { name: string; defaultValue?: string; className?: string }) {
+function TextInput({
+  name,
+  defaultValue = "",
+  className = "",
+}: {
+  name: string;
+  defaultValue?: string;
+  className?: string;
+}) {
   return (
     <input
       type="text"
@@ -27,30 +45,34 @@ function TextInput({ name, defaultValue = "", className = "" }: { name: string; 
       defaultValue={defaultValue}
       className={`border-b border-foreground/30 bg-transparent py-1 text-sm outline-none focus:border-foreground ${className}`}
     />
-  )
+  );
 }
 
 export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
-  const d = defaults || {}
+  const d = defaults || {};
 
   return (
     <fieldset className="border border-foreground/30 p-4">
-      <legend className="px-2 font-bold text-sm text-foreground">
+      <legend className="px-2 text-sm font-bold text-foreground">
         B. Tell us about yourself
       </legend>
+
       <div className="flex flex-col gap-3">
         {/* Row 1: Name */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <FormField label="Last Name" className="sm:col-span-2">
-            <TextInput name="last_name" defaultValue={d.lastName} />
+            <TextInput name="lastName" defaultValue={d.lastName} />
           </FormField>
+
           <FormField label="First Name">
-            <TextInput name="first_name" defaultValue={d.firstName} />
+            <TextInput name="firstName" defaultValue={d.firstName} />
           </FormField>
+
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Middle Name">
-              <TextInput name="middle_name" />
+              <TextInput name="middleName" />
             </FormField>
+
             <FormField label="Jr./Sr./III, etc.">
               <TextInput name="suffix" />
             </FormField>
@@ -59,21 +81,26 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
 
         {/* Row 2: Address */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-          <FormField label="Address where you live (a mailing only address cannot be used)" className="sm:col-span-8">
+          <FormField
+            label="Address where you live (a mailing only address cannot be used)"
+            className="sm:col-span-8"
+          >
             <TextInput name="address" defaultValue={d.address} />
           </FormField>
+
           <FormField label="Apt/Unit #" className="sm:col-span-2">
-            <TextInput name="apt_unit" />
+            <TextInput name="aptUnit" />
           </FormField>
+
           <FormField label="City & State" className="sm:col-span-2">
-            <div className="border-b border-foreground/30 py-1 text-sm text-muted-foreground">Washington, DC</div>
+            <TextInput name="city" defaultValue={d.city || "Washington, DC"} />
           </FormField>
         </div>
 
         {/* Row 2b: ZIP */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <FormField label="ZIP Code" className="sm:col-span-2">
-            <TextInput name="zip_code" defaultValue={d.zip} />
+            <TextInput name="zip" defaultValue={d.zip} />
           </FormField>
           <div className="sm:col-span-10" />
         </div>
@@ -82,26 +109,47 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-12">
           <FormField label="Date of Birth" className="sm:col-span-3">
             <div className="flex items-center gap-1">
-              <input type="text" name="dob_month" placeholder="MM" maxLength={2} className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
+              <input
+                type="text"
+                name="dobMonth"
+                placeholder="MM"
+                maxLength={2}
+                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
+              />
               <span className="text-muted-foreground">/</span>
-              <input type="text" name="dob_day" placeholder="DD" maxLength={2} className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
+              <input
+                type="text"
+                name="dobDay"
+                placeholder="DD"
+                maxLength={2}
+                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
+              />
               <span className="text-muted-foreground">/</span>
-              <input type="text" name="dob_year" placeholder="YYYY" maxLength={4} className="w-12 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
+              <input
+                type="text"
+                name="dobYear"
+                placeholder="YYYY"
+                maxLength={4}
+                className="w-12 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
+              />
             </div>
           </FormField>
+
           <FormField label="Social Security #" className="sm:col-span-3">
             <TextInput name="ssn" />
           </FormField>
+
           <FormField label="US Citizen" className="sm:col-span-2">
             <div className="flex items-center gap-3 py-1">
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="us_citizen" value="yes" className="accent-foreground" /> Yes
+                <input type="radio" name="usCitizen" value="yes" className="accent-foreground" /> Yes
               </label>
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="us_citizen" value="no" className="accent-foreground" /> No
+                <input type="radio" name="usCitizen" value="no" className="accent-foreground" /> No
               </label>
             </div>
           </FormField>
+
           <FormField label="Gender" className="sm:col-span-4">
             <div className="flex items-center gap-3 py-1">
               <label className="flex items-center gap-1 text-sm">
@@ -122,70 +170,68 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
           <FormField label="Weight" className="sm:col-span-2">
             <div className="flex items-center gap-1">
               <TextInput name="weight" className="w-full" />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">LBS</span>
+              <span className="whitespace-nowrap text-xs text-muted-foreground">LBS</span>
             </div>
           </FormField>
+
           <FormField label="Height" className="sm:col-span-2">
             <div className="flex items-center gap-1">
-              <input type="text" name="height_ft" className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
+              <input
+                type="text"
+                name="heightFt"
+                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
+              />
               <span className="text-xs text-muted-foreground">FT</span>
-              <input type="text" name="height_in" className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
+              <input
+                type="text"
+                name="heightIn"
+                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
+              />
               <span className="text-xs text-muted-foreground">IN</span>
             </div>
           </FormField>
+
           <FormField label="Hair Color" className="sm:col-span-2">
-            <TextInput name="hair_color" />
+            <TextInput name="hairColor" />
           </FormField>
+
           <FormField label="Eye Color" className="sm:col-span-2">
-            <TextInput name="eye_color" />
+            <TextInput name="eyeColor" />
           </FormField>
-          <FormField label="Other names you have used on a Driver License or ID Card" className="sm:col-span-4">
-            <TextInput name="other_names" />
+
+          <FormField
+            label="Other names you have used on a Driver License or ID Card"
+            className="sm:col-span-4"
+          >
+            <TextInput name="otherNames" />
           </FormField>
         </div>
 
         {/* Row 5: Phone, Email */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <FormField label="Cell Phone" className="sm:col-span-3">
-            <div className="flex items-center gap-0.5">
-              <span className="text-sm text-muted-foreground">(</span>
-              <input
-                type="text"
-                name="cell_area"
-                maxLength={3}
-                defaultValue={d.phone ? d.phone.replace(/\D/g, "").slice(0, 3) : ""}
-                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground"
-              />
-              <span className="text-sm text-muted-foreground">)</span>
-              <TextInput
-                name="cell_phone"
-                defaultValue={d.phone ? d.phone.replace(/\D/g, "").slice(3) : ""}
-                className="flex-1"
-              />
-            </div>
+            <TextInput name="phone" defaultValue={d.phone} />
           </FormField>
+
           <FormField label="Alternate Phone" className="sm:col-span-3">
-            <div className="flex items-center gap-0.5">
-              <span className="text-sm text-muted-foreground">(</span>
-              <input type="text" name="alt_area" maxLength={3} className="w-8 border-b border-foreground/30 bg-transparent py-1 text-sm text-center outline-none focus:border-foreground" />
-              <span className="text-sm text-muted-foreground">)</span>
-              <TextInput name="alt_phone" className="flex-1" />
-            </div>
+            <TextInput name="alternatePhone" />
           </FormField>
+
           <FormField label="Text Notification" className="sm:col-span-2">
             <div className="flex items-center gap-2 py-1">
               <label className="flex items-center gap-1 text-sm">
-                <input type="checkbox" name="text_notification" className="h-4 w-4 accent-foreground" />
+                <input type="checkbox" name="textNotification" className="h-4 w-4 accent-foreground" />
                 Yes
               </label>
               <span className="text-[10px] text-muted-foreground">Standard rates apply</span>
             </div>
           </FormField>
+
           <FormField label="Email" className="sm:col-span-4">
             <TextInput name="email" defaultValue={d.email} />
           </FormField>
         </div>
       </div>
     </fieldset>
-  )
+  );
 }
