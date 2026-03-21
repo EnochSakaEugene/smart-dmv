@@ -6,7 +6,9 @@ const credentials = process.env.GOOGLE_CREDENTIALS_JSON
   : undefined;
 
 const client = new vision.ImageAnnotatorClient(
-  credentials ? { credentials } : undefined
+  credentials
+    ? { credentials }
+    : undefined
 );
 
 function normalizeWhitespace(text: string) {

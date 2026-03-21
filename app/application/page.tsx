@@ -14,6 +14,20 @@ type ApplicationStatusResponse = {
   formSubmitted: boolean;
   applicationId: string | null;
   status: string | null;
+  documentStatus?: "not_uploaded" | "pending" | "approved" | "rejected";
+  canScheduleAppointment?: boolean;
+  verification?: {
+    id: string;
+    caseNumber: string;
+    fileName: string;
+    status: string;
+    submittedAt: string;
+    reviewedAt: string | null;
+    isException: boolean;
+    exceptionReason: string;
+    isStaffReview: boolean;
+    aiConfidence: number;
+  } | null;
 };
 
 export default function ApplicationPage() {
@@ -26,6 +40,8 @@ export default function ApplicationPage() {
   const [documentStatus, setDocumentStatus] = useState<
     "not_uploaded" | "pending" | "approved" | "rejected"
   >("not_uploaded");
+  const [canScheduleAppointment, setCanScheduleAppointment] = useState(false);
+  const [verification, setVerification] = useState<ApplicationStatusResponse["verification"]>(null);
 
   useEffect(() => {
     if (isLoading) return;
@@ -41,42 +57,24 @@ export default function ApplicationPage() {
       try {
         const res = await fetch("/application/status", {
           credentials: "include",
+          cache: "no-store",
         });
 
         const data = (await res.json().catch(() => null)) as ApplicationStatusResponse | null;
 
         if (!cancelled) {
           setFormSubmitted(!!data?.formSubmitted);
+          setDocumentStatus(data?.documentStatus ?? "not_uploaded");
+          setCanScheduleAppointment(!!data?.canScheduleAppointment);
+          setVerification(data?.verification ?? null);
         }
       } catch {
         if (!cancelled) {
           setFormSubmitted(false);
-        }
-      }
-
-      try {
-        const raw = localStorage.getItem(`dmv_document_status_${user.id}`);
-
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const doc = parsed?.leaseDocument;
-
-          if (!doc) {
-            setDocumentStatus("not_uploaded");
-          } else if (doc.status === "approved" || doc.verified === true) {
-            setDocumentStatus("approved");
-          } else if (doc.status === "rejected" || doc.rejected === true) {
-            setDocumentStatus("rejected");
-          } else if (doc.fileName) {
-            setDocumentStatus("pending");
-          } else {
-            setDocumentStatus("not_uploaded");
-          }
-        } else {
           setDocumentStatus("not_uploaded");
+          setCanScheduleAppointment(false);
+          setVerification(null);
         }
-      } catch {
-        setDocumentStatus("not_uploaded");
       } finally {
         if (!cancelled) {
           setStatusLoading(false);
@@ -170,33 +168,77 @@ export default function ApplicationPage() {
                   )}
 
                   {documentStatus === "pending" && (
-                    <p className="mt-1 text-sm font-medium text-blue-700">
-                      Documents uploaded — awaiting review
-                    </p>
+                    <div className="mt-1 space-y-1">
+                      <p className="text-sm font-medium text-blue-700">
+                        Documents uploaded — awaiting review
+                      </p>
+                      {verification?.fileName && (
+                        <p className="text-xs text-muted-foreground">
+                          File: {verification.fileName}
+                        </p>
+                      )}
+                      {verification?.submittedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          Submitted: {new Date(verification.submittedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {documentStatus === "approved" && (
-                    <p className="mt-1 text-sm font-medium text-green-700">
-                      Documents approved
-                    </p>
+                    <div className="mt-1 space-y-1">
+                      <p className="text-sm font-medium text-green-700">Documents approved</p>
+                      {verification?.fileName && (
+                        <p className="text-xs text-muted-foreground">
+                          File: {verification.fileName}
+                        </p>
+                      )}
+                      {verification?.reviewedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          Approved: {new Date(verification.reviewedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {documentStatus === "rejected" && (
-                    <p className="mt-1 text-sm font-medium text-destructive">
-                      Documents need attention
-                    </p>
+                    <div className="mt-1 space-y-1">
+                      <p className="text-sm font-medium text-destructive">
+                        Documents need attention
+                      </p>
+                      {verification?.fileName && (
+                        <p className="text-xs text-muted-foreground">
+                          File: {verification.fileName}
+                        </p>
+                      )}
+                      {verification?.reviewedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          Reviewed: {new Date(verification.reviewedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
 
               <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => router.push("/document-upload")}
-                  className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Go to Document Upload
-                </button>
+                {canScheduleAppointment ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/appointment")}
+                    className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    Go to Schedule Appointment
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/document-upload")}
+                    className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    Go to Document Upload
+                  </button>
+                )}
 
                 {documentStatus === "approved" && (
                   <button
