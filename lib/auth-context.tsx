@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
+export type UserRole = "RESIDENT" | "STAFF" | "ADMIN";
+
 export interface User {
   id: string;
   firstName: string;
@@ -12,12 +14,16 @@ export interface User {
   address?: string | null;
   city?: string | null;
   zip?: string | null;
+  role: UserRole;
   createdAt: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (
+    email: string,
+    password: string
+  ) => Promise<{ success: boolean; role?: UserRole }>;
   register: (data: {
     firstName: string;
     lastName: string;
@@ -38,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Hydrate session on load (cookie-based)
   useEffect(() => {
     let cancelled = false;
 
@@ -46,11 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch("/api/auth/me", { credentials: "include" });
         const data = await res.json().catch(() => null);
-        if (!cancelled) setUser(data?.user ?? null);
+
+        if (!cancelled) {
+          setUser(data?.user ?? null);
+        }
       } catch {
-        if (!cancelled) setUser(null);
+        if (!cancelled) {
+          setUser(null);
+        }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     })();
 
@@ -59,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login: AuthContextType["login"] = async (email, password) => {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -68,13 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      if (!res.ok) return false;
+      if (!res.ok) {
+        return { success: false };
+      }
 
       const data = await res.json().catch(() => null);
       setUser(data?.user ?? null);
-      return !!data?.user;
+
+      return {
+        success: !!data?.user,
+        role: data?.user?.role as UserRole | undefined,
+      };
     } catch {
-      return false;
+      return { success: false };
     }
   };
 
@@ -99,7 +117,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
     } finally {
       setUser(null);
     }
@@ -114,6 +135,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within an AuthProvider");
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
   return context;
 }

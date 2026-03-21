@@ -8,7 +8,9 @@ export async function GET() {
     const cookieStore = await cookies();
     const token = cookieStore.get("session")?.value;
 
-    if (!token) return NextResponse.json({ user: null }, { status: 200 });
+    if (!token) {
+      return NextResponse.json({ user: null }, { status: 200 });
+    }
 
     const { userId } = verifySession(token);
 
@@ -23,6 +25,7 @@ export async function GET() {
         address: true,
         city: true,
         zip: true,
+        role: true,
         createdAt: true,
       },
     });
@@ -33,12 +36,14 @@ export async function GET() {
           ? {
               ...user,
               name: `${user.firstName} ${user.lastName}`,
+              createdAt: user.createdAt.toISOString(),
             }
           : null,
       },
       { status: 200 }
     );
-  } catch {
+  } catch (error) {
+    console.error("Auth /me error:", error);
     return NextResponse.json({ user: null }, { status: 200 });
   }
 }

@@ -8,16 +8,30 @@ export async function POST(req: Request) {
     const { email, password } = await req.json();
 
     if (!email || !password) {
-      return NextResponse.json({ error: "Email and password required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Email and password required" },
+        { status: 400 }
+      );
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    const user = await prisma.user.findUnique({
+      where: { email: String(email).toLowerCase().trim() },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
 
     const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    if (!ok) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
 
-    const token = signSession({ userId: user.id, email: user.email });
+    const token = signSession({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
 
     const safeUser = {
       id: user.id,
@@ -29,7 +43,8 @@ export async function POST(req: Request) {
       address: user.address,
       city: user.city,
       zip: user.zip,
-      createdAt: user.createdAt,
+      role: user.role,
+      createdAt: user.createdAt.toISOString(),
     };
 
     const res = NextResponse.json({ ok: true, user: safeUser });
@@ -43,7 +58,8 @@ export async function POST(req: Request) {
     });
 
     return res;
-  } catch {
+  } catch (error) {
+    console.error("Login error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

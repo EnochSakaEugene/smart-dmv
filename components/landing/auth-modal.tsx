@@ -1,89 +1,108 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { useAuth } from "@/lib/auth-context"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 
 interface AuthModalProps {
-  mode: "login" | "register" | null
-  onClose: () => void
-  onSwitch: (mode: "login" | "register") => void
+  mode: "login" | "register" | null;
+  onClose: () => void;
+  onSwitch: (mode: "login" | "register") => void;
 }
 
 export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
-  const { login, register } = useAuth()
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
+  const { login, register } = useAuth();
+  const router = useRouter();
+
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   // Login form state
-  const [loginEmail, setLoginEmail] = useState("")
-  const [loginPassword, setLoginPassword] = useState("")
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
   // Register form state
-  const [regFirstName, setRegFirstName] = useState("")
-  const [regLastName, setRegLastName] = useState("")
-  const [regEmail, setRegEmail] = useState("")
-  const [regPhone, setRegPhone] = useState("")
-  const [regAddress, setRegAddress] = useState("")
-  const [regCity, setRegCity] = useState("Washington, DC")
-  const [regZip, setRegZip] = useState("")
-  const [regPassword, setRegPassword] = useState("")
-  const [regConfirm, setRegConfirm] = useState("")
+  const [regFirstName, setRegFirstName] = useState("");
+  const [regLastName, setRegLastName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPhone, setRegPhone] = useState("");
+  const [regAddress, setRegAddress] = useState("");
+  const [regCity, setRegCity] = useState("Washington, DC");
+  const [regZip, setRegZip] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirm, setRegConfirm] = useState("");
 
   const resetForms = () => {
-    setLoginEmail("")
-    setLoginPassword("")
-    setRegFirstName("")
-    setRegLastName("")
-    setRegEmail("")
-    setRegPhone("")
-    setRegAddress("")
-    setRegCity("Washington, DC")
-    setRegZip("")
-    setRegPassword("")
-    setRegConfirm("")
-    setError("")
-  }
+    setLoginEmail("");
+    setLoginPassword("");
+    setRegFirstName("");
+    setRegLastName("");
+    setRegEmail("");
+    setRegPhone("");
+    setRegAddress("");
+    setRegCity("Washington, DC");
+    setRegZip("");
+    setRegPassword("");
+    setRegConfirm("");
+    setError("");
+  };
 
   const handleClose = () => {
-    resetForms()
-    onClose()
-  }
+    resetForms();
+    onClose();
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
-    setLoading(true)
-    const success = await login(loginEmail, loginPassword)
-    setLoading(false)
-    if (success) {
-      handleClose()
-    } else {
-      setError("Invalid email or password. Please try again.")
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    const result = await login(loginEmail, loginPassword);
+
+    setLoading(false);
+
+    if (!result.success) {
+      setError("Invalid email or password. Please try again.");
+      return;
     }
-  }
+
+    handleClose();
+
+    if (result.role === "ADMIN") {
+      router.push("/admin");
+    } else if (result.role === "STAFF") {
+      router.push("/staff");
+    } else {
+      router.push("/application");
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+    e.preventDefault();
+    setError("");
+
     if (regPassword !== regConfirm) {
-      setError("Passwords do not match.")
-      return
+      setError("Passwords do not match.");
+      return;
     }
+
     if (regPassword.length < 6) {
-      setError("Password must be at least 6 characters.")
-      return
+      setError("Password must be at least 6 characters.");
+      return;
     }
-    setLoading(true)
+
+    setLoading(true);
+
     const success = await register({
       firstName: regFirstName,
       lastName: regLastName,
@@ -93,14 +112,17 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
       city: regCity,
       zip: regZip,
       password: regPassword,
-    })
-    setLoading(false)
+    });
+
+    setLoading(false);
+
     if (success) {
-      handleClose()
+      handleClose();
+      router.push("/application");
     } else {
-      setError("An account with this email already exists.")
+      setError("An account with this email already exists.");
     }
-  }
+  };
 
   return (
     <Dialog open={mode !== null} onOpenChange={(open) => !open && handleClose()}>
@@ -115,14 +137,18 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                 Enter your credentials to access your account.
               </DialogDescription>
             </DialogHeader>
+
             <form onSubmit={handleLogin} className="flex flex-col gap-4 pt-2">
               {error && (
                 <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {error}
                 </div>
               )}
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="login-email" className="text-foreground">Email</Label>
+                <Label htmlFor="login-email" className="text-foreground">
+                  Email
+                </Label>
                 <Input
                   id="login-email"
                   type="email"
@@ -132,8 +158,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   required
                 />
               </div>
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="login-password" className="text-foreground">Password</Label>
+                <Label htmlFor="login-password" className="text-foreground">
+                  Password
+                </Label>
                 <Input
                   id="login-password"
                   type="password"
@@ -143,6 +172,7 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   required
                 />
               </div>
+
               <Button
                 type="submit"
                 disabled={loading}
@@ -150,11 +180,15 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
               >
                 {loading ? "Logging in..." : "Log In"}
               </Button>
+
               <p className="text-center text-sm text-muted-foreground">
                 {"Don't have an account? "}
                 <button
                   type="button"
-                  onClick={() => { resetForms(); onSwitch("register") }}
+                  onClick={() => {
+                    resetForms();
+                    onSwitch("register");
+                  }}
                   className="font-medium text-primary underline-offset-4 hover:underline"
                 >
                   Register
@@ -169,18 +203,23 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                 Create an Account
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Register to start your document verification process. Your information will pre-fill the application form.
+                Register to start your document verification process. Your information will pre-fill
+                the application form.
               </DialogDescription>
             </DialogHeader>
+
             <form onSubmit={handleRegister} className="flex flex-col gap-4 pt-2">
               {error && (
                 <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {error}
                 </div>
               )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="reg-first-name" className="text-foreground">First Name</Label>
+                  <Label htmlFor="reg-first-name" className="text-foreground">
+                    First Name
+                  </Label>
                   <Input
                     id="reg-first-name"
                     type="text"
@@ -190,8 +229,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                     required
                   />
                 </div>
+
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="reg-last-name" className="text-foreground">Last Name</Label>
+                  <Label htmlFor="reg-last-name" className="text-foreground">
+                    Last Name
+                  </Label>
                   <Input
                     id="reg-last-name"
                     type="text"
@@ -202,8 +244,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   />
                 </div>
               </div>
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reg-email" className="text-foreground">Email</Label>
+                <Label htmlFor="reg-email" className="text-foreground">
+                  Email
+                </Label>
                 <Input
                   id="reg-email"
                   type="email"
@@ -213,8 +258,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   required
                 />
               </div>
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reg-phone" className="text-foreground">Phone Number</Label>
+                <Label htmlFor="reg-phone" className="text-foreground">
+                  Phone Number
+                </Label>
                 <Input
                   id="reg-phone"
                   type="tel"
@@ -224,8 +272,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   required
                 />
               </div>
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reg-address" className="text-foreground">Street Address</Label>
+                <Label htmlFor="reg-address" className="text-foreground">
+                  Street Address
+                </Label>
                 <Input
                   id="reg-address"
                   type="text"
@@ -234,9 +285,12 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   onChange={(e) => setRegAddress(e.target.value)}
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="reg-city" className="text-foreground">City & State</Label>
+                  <Label htmlFor="reg-city" className="text-foreground">
+                    City & State
+                  </Label>
                   <Input
                     id="reg-city"
                     type="text"
@@ -246,8 +300,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                     className="bg-muted text-muted-foreground"
                   />
                 </div>
+
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="reg-zip" className="text-foreground">ZIP Code</Label>
+                  <Label htmlFor="reg-zip" className="text-foreground">
+                    ZIP Code
+                  </Label>
                   <Input
                     id="reg-zip"
                     type="text"
@@ -257,8 +314,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   />
                 </div>
               </div>
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reg-password" className="text-foreground">Password</Label>
+                <Label htmlFor="reg-password" className="text-foreground">
+                  Password
+                </Label>
                 <Input
                   id="reg-password"
                   type="password"
@@ -268,8 +328,11 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   required
                 />
               </div>
+
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reg-confirm" className="text-foreground">Confirm Password</Label>
+                <Label htmlFor="reg-confirm" className="text-foreground">
+                  Confirm Password
+                </Label>
                 <Input
                   id="reg-confirm"
                   type="password"
@@ -279,6 +342,7 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
                   required
                 />
               </div>
+
               <Button
                 type="submit"
                 disabled={loading}
@@ -286,11 +350,15 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
               >
                 {loading ? "Creating account..." : "Create Account"}
               </Button>
+
               <p className="text-center text-sm text-muted-foreground">
                 Already have an account?{" "}
                 <button
                   type="button"
-                  onClick={() => { resetForms(); onSwitch("login") }}
+                  onClick={() => {
+                    resetForms();
+                    onSwitch("login");
+                  }}
                   className="font-medium text-primary underline-offset-4 hover:underline"
                 >
                   Log In
@@ -301,5 +369,5 @@ export function AuthModal({ mode, onClose, onSwitch }: AuthModalProps) {
         ) : null}
       </DialogContent>
     </Dialog>
-  )
+  );
 }
