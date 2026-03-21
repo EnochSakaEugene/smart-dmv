@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import vision from "@google-cloud/vision";
 
-const client = new vision.ImageAnnotatorClient();
+const credentials = process.env.GOOGLE_CREDENTIALS_JSON
+  ? JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON)
+  : undefined;
+
+const client = new vision.ImageAnnotatorClient(
+  credentials ? { credentials } : undefined
+);
 
 function normalizeWhitespace(text: string) {
   return text.replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
