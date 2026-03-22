@@ -3,7 +3,10 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 
-export async function POST(req: Request) {
+export async function POST(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("session")?.value;
@@ -23,8 +26,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await req.json();
-    const appointmentId = body?.appointmentId;
+    const { id: appointmentId } = await params;
 
     if (!appointmentId || typeof appointmentId !== "string") {
       return NextResponse.json(
@@ -51,7 +53,7 @@ export async function POST(req: Request) {
 
     if (appointment.status !== "SCHEDULED") {
       return NextResponse.json(
-        { error: "Only scheduled appointments can be completed" },
+        { error: "Only scheduled appointments can be marked no-show" },
         { status: 409 }
       );
     }
@@ -59,7 +61,7 @@ export async function POST(req: Request) {
     const updated = await prisma.appointment.update({
       where: { id: appointmentId },
       data: {
-        status: "COMPLETED",
+        status: "NO_SHOW",
         staffId: session.userId,
         staffName: staffUser
           ? `${staffUser.firstName} ${staffUser.lastName}`.trim()
@@ -79,9 +81,9 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error("POST /api/staff/appointments/complete error:", error);
+    console.error("POST /api/staff/appointments/[id]/no-show error:", error);
     return NextResponse.json(
-      { error: "Failed to complete appointment" },
+      { error: "Failed to mark appointment as no-show" },
       { status: 500 }
     );
   }

@@ -32,12 +32,13 @@ interface Appointment {
 
 export default function StaffBookingsPage() {
   const [bookings, setBookings] = useState<Appointment[]>([])
-  const [filter, setFilter] = useState<"all" | "today" | "upcoming" | "completed">("today")
+  const [filter, setFilter] = useState<"all" | "today" | "upcoming" | "completed" | "no-show">("today")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedBooking, setSelectedBooking] = useState<Appointment | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState("")
 
   const loadBookings = async () => {
     try {
@@ -61,9 +62,11 @@ export default function StaffBookingsPage() {
           (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
         )
       )
+      setErrorMessage("")
     } catch (error) {
       console.error("Failed to load staff bookings:", error)
       setBookings([])
+      setErrorMessage(error instanceof Error ? error.message : "Failed to load bookings")
     } finally {
       setIsLoading(false)
     }
@@ -100,6 +103,8 @@ export default function StaffBookingsPage() {
         return bookingDate >= tomorrow && booking.status === "scheduled"
       case "completed":
         return booking.status === "completed"
+      case "no-show":
+        return booking.status === "no_show"
       default:
         return true
     }
@@ -123,23 +128,14 @@ export default function StaffBookingsPage() {
       }
 
       await loadBookings()
-
-      setSelectedBooking((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: "completed",
-              staffId: data?.appointment?.staffId ?? prev.staffId,
-              staffName: data?.appointment?.staffName ?? prev.staffName,
-              completedAt: data?.appointment?.completedAt ?? prev.completedAt,
-            }
-          : null
-      )
-
+      setErrorMessage("")
       setIsDetailModalOpen(false)
       setSelectedBooking(null)
     } catch (error) {
       console.error("Mark complete failed:", error)
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to mark appointment complete"
+      )
     } finally {
       setIsProcessing(false)
     }
@@ -163,23 +159,14 @@ export default function StaffBookingsPage() {
       }
 
       await loadBookings()
-
-      setSelectedBooking((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: "no_show",
-              staffId: data?.appointment?.staffId ?? prev.staffId,
-              staffName: data?.appointment?.staffName ?? prev.staffName,
-              completedAt: data?.appointment?.completedAt ?? prev.completedAt,
-            }
-          : null
-      )
-
+      setErrorMessage("")
       setIsDetailModalOpen(false)
       setSelectedBooking(null)
     } catch (error) {
       console.error("Mark no-show failed:", error)
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to mark appointment as no-show"
+      )
     } finally {
       setIsProcessing(false)
     }
@@ -254,9 +241,15 @@ export default function StaffBookingsPage() {
         )}
       </div>
 
+      {errorMessage && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
-          {(["today", "upcoming", "completed", "all"] as const).map((f) => (
+          {(["today", "upcoming", "completed", "no-show", "all"] as const).map((f) => (
             <Button
               key={f}
               variant={filter === f ? "default" : "outline"}
@@ -307,21 +300,11 @@ export default function StaffBookingsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Resident
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Date & Time
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Location
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Actions
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resident</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date & Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Location</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</th>
                 </tr>
               </thead>
 
@@ -334,11 +317,7 @@ export default function StaffBookingsPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                            {booking.userName
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .toUpperCase()}
+                            {booking.userName.split(" ").map((n) => n[0]).join("").toUpperCase()}
                           </div>
                           <div>
                             <p className="text-sm font-medium text-foreground">{booking.userName}</p>
@@ -403,11 +382,7 @@ export default function StaffBookingsPage() {
             <div className="flex flex-col gap-4 py-4">
               <div className="flex items-center gap-3 rounded-lg border border-border p-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
-                  {selectedBooking.userName
-                    .split(" ")
-                    .map((n) => n[0])
-                    .join("")
-                    .toUpperCase()}
+                  {selectedBooking.userName.split(" ").map((n) => n[0]).join("").toUpperCase()}
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">{selectedBooking.userName}</p>
