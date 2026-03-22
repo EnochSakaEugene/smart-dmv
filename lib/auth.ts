@@ -1,16 +1,16 @@
 import * as jwt from "jsonwebtoken";
 
+type SessionPayload = {
+  userId: string;
+  email: string;
+  role: "RESIDENT" | "STAFF" | "ADMIN";
+};
+
 function getSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("Missing JWT_SECRET");
   return secret;
 }
-
-export type SessionPayload = {
-  userId: string;
-  email: string;
-  role: "RESIDENT" | "STAFF" | "ADMIN";
-};
 
 export function signSession(payload: SessionPayload) {
   return jwt.sign(payload, getSecret(), { expiresIn: "7d" });

@@ -41,6 +41,16 @@ interface VerificationResponse {
   } | null;
 }
 
+interface CurrentAppointmentResponse {
+  appointment: {
+    id: string;
+    locationName: string;
+    appointmentDate: string;
+    timeLabel: string;
+    status: "scheduled" | "completed" | "cancelled" | "no_show";
+  } | null;
+}
+
 function defaultSteps(): StepItem[] {
   return [
     {
@@ -75,19 +85,34 @@ export function ProgressSidebar() {
 
     const updateSteps = async () => {
       try {
-        const res = await fetch("/api/verification/me", {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const [verificationRes, appointmentRes] = await Promise.all([
+          fetch("/api/verification/me", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetch("/api/appointment/current", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ]);
 
-        const data: VerificationResponse = await res.json();
+        const verificationData =
+          (await verificationRes.json().catch(() => null)) as VerificationResponse | null;
 
-        if (!res.ok || !data?.verification) {
+        const appointmentData =
+          (await appointmentRes.json().catch(() => null)) as CurrentAppointmentResponse | null;
+
+        const hasScheduledAppointment =
+          appointmentRes.ok &&
+          !!appointmentData?.appointment &&
+          appointmentData.appointment.status === "scheduled";
+
+        if (!verificationRes.ok || !verificationData?.verification) {
           setSteps(defaultSteps());
           return;
         }
 
-        const verification = data.verification;
+        const verification = verificationData.verification;
 
         if (verification.status === "APPROVED") {
           setSteps([
@@ -108,8 +133,10 @@ export function ProgressSidebar() {
             },
             {
               label: "Appointment Scheduling",
-              description: "Book your DMV visit",
-              status: "in-progress",
+              description: hasScheduledAppointment
+                ? "Appointment scheduled"
+                : "Book your DMV visit",
+              status: hasScheduledAppointment ? "completed" : "in-progress",
             },
           ]);
           return;

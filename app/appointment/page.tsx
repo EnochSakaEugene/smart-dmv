@@ -9,8 +9,6 @@ import { Footer } from "@/components/landing/footer";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 
-const BOOKINGS_KEY = "dmv_all_bookings";
-
 const DMV_LOCATIONS = [
   {
     id: "benning-ridge",
@@ -121,22 +119,23 @@ const generateTimeSlots = (locationType: string, date: Date) => {
   return slots;
 };
 
-interface Appointment {
+interface CurrentAppointment {
   id: string;
   userId: string;
-  userName: string;
-  userEmail: string;
-  date: string;
-  time: string;
+  verificationId?: string | null;
   locationId: string;
   locationName: string;
   locationAddress: string;
+  appointmentDate: string;
+  timeLabel: string;
+  status: "scheduled" | "completed" | "cancelled" | "no_show";
   bookedAt: string;
-  status: "scheduled" | "completed" | "cancelled" | "no-show";
-  staffId?: string;
-  staffName?: string;
-  completedAt?: string;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  staffId?: string | null;
+  staffName?: string | null;
   documentFileName?: string;
+  caseNumber?: string;
 }
 
 export default function AppointmentPage() {
@@ -151,11 +150,7 @@ export default function AppointmentPage() {
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [appointmentBooked, setAppointmentBooked] = useState(false);
-  const [existingAppointment, setExistingAppointment] = useState<Appointment | null>(null);
-
-  const getAppointmentKey = useMemo(() => {
-    return user ? `dmv_appointment_${user.id}` : "dmv_appointment";
-  }, [user]);
+  const [existingAppointment, setExistingAppointment] = useState<CurrentAppointment | null>(null);
 
   const maxDate = useMemo(() => {
     const date = new Date();
@@ -191,104 +186,111 @@ export default function AppointmentPage() {
 
     const initializePage = async () => {
       try {
-        const res = await fetch("/api/appointment/eligibility", {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const [eligibilityRes, currentAppointmentRes] = await Promise.all([
+          fetch("/api/appointment/eligibility", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetch("/api/appointment/current", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ]);
 
-        const data = await res.json();
+        const eligibilityData = await eligibilityRes.json().catch(() => null);
+        const currentAppointmentData = await currentAppointmentRes.json().catch(() => null);
 
-        if (res.ok) {
-          setDocumentVerified(!!data.eligible);
-          setDocumentFileName(data?.verification?.fileName || "");
+        if (eligibilityRes.ok) {
+          setDocumentVerified(!!eligibilityData?.eligible);
+          setDocumentFileName(eligibilityData?.verification?.fileName || "");
         } else {
           setDocumentVerified(false);
           setDocumentFileName("");
         }
 
-        const appointmentRaw = localStorage.getItem(getAppointmentKey);
-        if (appointmentRaw) {
-          const appointment = JSON.parse(appointmentRaw) as Appointment;
-          if (appointment.status !== "cancelled") {
+        if (currentAppointmentRes.ok && currentAppointmentData?.appointment) {
+          const appointment = currentAppointmentData.appointment as CurrentAppointment;
+          if (appointment.status === "scheduled") {
             setExistingAppointment(appointment);
             setAppointmentBooked(true);
+          } else {
+            setExistingAppointment(null);
+            setAppointmentBooked(false);
           }
+        } else {
+          setExistingAppointment(null);
+          setAppointmentBooked(false);
         }
       } catch (error) {
         console.error("Failed to initialize appointment page:", error);
         setDocumentVerified(false);
         setDocumentFileName("");
+        setExistingAppointment(null);
+        setAppointmentBooked(false);
       } finally {
         setReady(true);
       }
     };
 
     initializePage();
-  }, [user, isLoading, router, getAppointmentKey]);
+  }, [user, isLoading, router]);
 
-  const handleBookAppointment = () => {
+  const handleBookAppointment = async () => {
     if (!selectedDate || !selectedTime || !selectedLocation || !user) return;
+
+    const locationData = DMV_LOCATIONS.find((l) => l.id === selectedLocation);
+    if (!locationData) return;
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      const locationData = DMV_LOCATIONS.find((l) => l.id === selectedLocation);
+    try {
+      const res = await fetch("/api/appointment/book", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          locationId: locationData.id,
+          locationName: locationData.name,
+          locationAddress: `${locationData.address}, ${locationData.city}`,
+          appointmentDate: selectedDate.toISOString(),
+          timeLabel: selectedTime,
+        }),
+      });
 
-      const appointment: Appointment = {
-        id: `APT-${Date.now()}`,
-        userId: user.id,
-        userName: user.name,
-        userEmail: user.email,
-        date: selectedDate.toISOString(),
-        time: selectedTime,
-        locationId: selectedLocation,
-        locationName: locationData?.name || "",
-        locationAddress: `${locationData?.address}, ${locationData?.city}` || "",
-        bookedAt: new Date().toISOString(),
-        status: "scheduled",
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to book appointment");
+      }
+
+      const bookedAppointment: CurrentAppointment = {
+        id: data.appointment.id,
+        userId: data.appointment.userId,
+        verificationId: data.appointment.verificationId ?? null,
+        locationId: data.appointment.locationId,
+        locationName: data.appointment.locationName,
+        locationAddress: data.appointment.locationAddress,
+        appointmentDate: data.appointment.appointmentDate,
+        timeLabel: data.appointment.timeLabel,
+        status: data.appointment.status,
+        bookedAt: data.appointment.bookedAt,
         documentFileName,
       };
 
-      localStorage.setItem(getAppointmentKey, JSON.stringify(appointment));
-
-      try {
-        const bookingsRaw = localStorage.getItem(BOOKINGS_KEY);
-        const bookings: Appointment[] = bookingsRaw ? JSON.parse(bookingsRaw) : [];
-        bookings.push(appointment);
-        localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
-      } catch {
-        // ignore
-      }
-
-      setExistingAppointment(appointment);
+      setExistingAppointment(bookedAppointment);
       setAppointmentBooked(true);
+    } catch (error) {
+      console.error("Failed to book appointment:", error);
+      alert(error instanceof Error ? error.message : "Failed to book appointment");
+    } finally {
       setIsSubmitting(false);
-    }, 1500);
+    }
   };
 
   const handleCancelAppointment = () => {
-    if (!existingAppointment) return;
-
-    const updated = { ...existingAppointment, status: "cancelled" as const };
-    localStorage.setItem(getAppointmentKey, JSON.stringify(updated));
-
-    try {
-      const bookingsRaw = localStorage.getItem(BOOKINGS_KEY);
-      const bookings: Appointment[] = bookingsRaw ? JSON.parse(bookingsRaw) : [];
-      const index = bookings.findIndex((b) => b.id === existingAppointment.id);
-      if (index !== -1) {
-        bookings[index] = updated;
-        localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
-      }
-    } catch {
-      // ignore
-    }
-
-    setAppointmentBooked(false);
-    setExistingAppointment(null);
-    setSelectedDate(undefined);
-    setSelectedLocation(null);
-    setSelectedTime(null);
+    alert("Appointment cancellation is not connected to the database yet.");
   };
 
   if (isLoading || !ready) {
@@ -333,7 +335,7 @@ export default function AppointmentPage() {
   }
 
   if (appointmentBooked && existingAppointment) {
-    const appointmentDate = new Date(existingAppointment.date);
+    const appointmentDate = new Date(existingAppointment.appointmentDate);
 
     return (
       <div className="flex min-h-screen flex-col bg-background font-sans">
@@ -380,7 +382,7 @@ export default function AppointmentPage() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-primary"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                     <div>
                       <p className="text-xs text-muted-foreground">Time</p>
-                      <p className="text-sm font-medium text-foreground">{existingAppointment.time}</p>
+                      <p className="text-sm font-medium text-foreground">{existingAppointment.timeLabel}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">

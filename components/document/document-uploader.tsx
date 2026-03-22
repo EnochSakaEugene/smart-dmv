@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 
-const SUPPORT_REQUESTS_KEY = "dmv_support_requests";
-
 type UploadStatus =
   | "idle"
   | "uploaded"
@@ -24,6 +22,39 @@ interface DocumentState {
   progress: number;
 }
 
+interface VerificationResponse {
+  verification: {
+    id: string;
+    documentType: string;
+    fileName: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    aiStatus:
+      | "PENDING"
+      | "TIMED_OUT"
+      | "APPROVED_BY_AI"
+      | "APPROVED_BY_STAFF"
+      | "REJECTED_BY_STAFF";
+    isStaffReview: boolean;
+    aiConfidence?: number | null;
+    ocrText?: string | null;
+    extractedFields?: {
+      documentType?: string;
+      tenantName?: string;
+      landlordName?: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      leaseStartDate?: string;
+      leaseEndDate?: string;
+    } | null;
+    submittedAt: string;
+    sentToStaffAt?: string | null;
+    reviewedAt?: string | null;
+    reviewNotes?: string;
+  } | null;
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -36,10 +67,6 @@ function fileToDataUrl(file: File): Promise<string> {
 export function DocumentUploader() {
   const router = useRouter();
   const { user } = useAuth();
-
-  const getDocStatusKey = useCallback(() => {
-    return user ? `dmv_document_status_${user.id}` : "dmv_document_status";
-  }, [user]);
 
   const [leaseDoc, setLeaseDoc] = useState<DocumentState>({
     file: null,
@@ -60,133 +87,67 @@ export function DocumentUploader() {
         cache: "no-store",
       });
 
-      const data = await res.json();
+      const data: VerificationResponse = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to load verification status");
+        throw new Error((data as any)?.error || "Failed to load verification status");
       }
 
       const verification = data?.verification;
 
-      if (!verification) return;
+      if (!verification) {
+        setLeaseDoc((prev) => {
+          if (prev.status === "uploading" || prev.status === "uploaded") return prev;
+          return {
+            file: null,
+            fileName: "",
+            status: "idle",
+            progress: 0,
+          };
+        });
+        return;
+      }
 
       if (verification.status === "APPROVED") {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          fileName: verification.fileName || prev.fileName,
+        setLeaseDoc({
+          file: null,
+          fileName: verification.fileName || "Document",
           status: "approved",
           progress: 100,
-        }));
+        });
         return;
       }
 
       if (verification.status === "REJECTED") {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          fileName: verification.fileName || prev.fileName,
-          status: verification.isStaffReview ? "support-requested" : "rejected",
+        setLeaseDoc({
+          file: null,
+          fileName: verification.fileName || "Document",
+          status: "rejected",
           progress: 100,
-        }));
+        });
         return;
       }
 
       if (verification.status === "PENDING") {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          fileName: verification.fileName || prev.fileName,
+        setLeaseDoc({
+          file: null,
+          fileName: verification.fileName || "Document",
           status: verification.isStaffReview ? "support-requested" : "verifying",
           progress: 100,
-        }));
+        });
+        return;
       }
+
+      setLeaseDoc({
+        file: null,
+        fileName: "",
+        status: "idle",
+        progress: 0,
+      });
     } catch (error) {
       console.error("Failed to load verification status:", error);
     }
   }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    try {
-      const raw = localStorage.getItem(getDocStatusKey());
-
-      if (!raw) {
-        setLeaseDoc({
-          file: null,
-          fileName: "",
-          status: "idle",
-          progress: 0,
-        });
-        return;
-      }
-
-      const parsed = JSON.parse(raw);
-      const doc = parsed?.leaseDocument;
-
-      if (!doc) {
-        setLeaseDoc({
-          file: null,
-          fileName: "",
-          status: "idle",
-          progress: 0,
-        });
-        return;
-      }
-
-      if (doc.status === "approved" || doc.verified) {
-        setLeaseDoc({
-          file: null,
-          fileName: doc.fileName || "Document",
-          status: "approved",
-          progress: 100,
-        });
-        return;
-      }
-
-      if (doc.status === "rejected" || doc.rejected) {
-        setLeaseDoc({
-          file: null,
-          fileName: doc.fileName || "Document",
-          status: doc.supportRequested ? "support-requested" : "rejected",
-          progress: 100,
-        });
-        return;
-      }
-
-      if (doc.status === "pending" || doc.verifying || doc.supportRequested) {
-        setLeaseDoc({
-          file: null,
-          fileName: doc.fileName || "Document",
-          status: doc.supportRequested ? "support-requested" : "verifying",
-          progress: 100,
-        });
-        return;
-      }
-
-      if (doc.fileName) {
-        setLeaseDoc({
-          file: null,
-          fileName: doc.fileName,
-          status: "uploaded",
-          progress: 100,
-        });
-        return;
-      }
-
-      setLeaseDoc({
-        file: null,
-        fileName: "",
-        status: "idle",
-        progress: 0,
-      });
-    } catch {
-      setLeaseDoc({
-        file: null,
-        fileName: "",
-        status: "idle",
-        progress: 0,
-      });
-    }
-  }, [user, getDocStatusKey]);
 
   useEffect(() => {
     if (!user) return;
@@ -203,89 +164,65 @@ export function DocumentUploader() {
     return () => clearInterval(interval);
   }, [leaseDoc.status, user, loadVerificationStatus]);
 
-  const handleFile = useCallback(
-    (file: File) => {
-      const allowedTypes = [
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/jpg",
-      ];
-      if (!allowedTypes.includes(file.type)) {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          status: "error",
-          fileName: file.name,
-        }));
-        return;
-      }
+  const handleFile = useCallback((file: File) => {
+    const allowedTypes = [
+      "application/pdf",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+    ];
 
-      if (file.size > 10 * 1024 * 1024) {
-        setLeaseDoc((prev) => ({
-          ...prev,
-          status: "error",
-          fileName: file.name,
-        }));
-        return;
-      }
-
+    if (!allowedTypes.includes(file.type)) {
       setLeaseDoc({
-        file,
+        file: null,
         fileName: file.name,
-        status: "uploading",
+        status: "error",
         progress: 0,
       });
+      return;
+    }
 
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += Math.random() * 15 + 5;
+    if (file.size > 10 * 1024 * 1024) {
+      setLeaseDoc({
+        file: null,
+        fileName: file.name,
+        status: "error",
+        progress: 0,
+      });
+      return;
+    }
 
-        if (progress >= 100) {
-          progress = 100;
-          clearInterval(interval);
+    setLeaseDoc({
+      file,
+      fileName: file.name,
+      status: "uploading",
+      progress: 0,
+    });
 
-          setLeaseDoc((prev) => ({
-            ...prev,
-            status: "uploaded",
-            progress: 100,
-          }));
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 15 + 5;
 
-          try {
-            const existingRaw = localStorage.getItem(getDocStatusKey());
-            const existing = existingRaw ? JSON.parse(existingRaw) : {};
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
 
-            const docStatus = {
-              ...existing,
-              leaseDocument: {
-                ...existing.leaseDocument,
-                fileName: file.name,
-                uploadedAt: new Date().toISOString(),
-                status: "uploaded",
-                uploaded: true,
-                verified: false,
-                rejected: false,
-                supportRequested: false,
-              },
-            };
-
-            localStorage.setItem(getDocStatusKey(), JSON.stringify(docStatus));
-          } catch {
-            // ignore
-          }
-        } else {
-          setLeaseDoc((prev) => ({
-            ...prev,
-            progress: Math.min(progress, 99),
-          }));
-        }
-      }, 200);
-    },
-    [getDocStatusKey]
-  );
+        setLeaseDoc((prev) => ({
+          ...prev,
+          status: "uploaded",
+          progress: 100,
+        }));
+      } else {
+        setLeaseDoc((prev) => ({
+          ...prev,
+          progress: Math.min(progress, 99),
+        }));
+      }
+    }, 200);
+  }, []);
 
   const handleSubmitForVerification = useCallback(async () => {
-    if (!user) return;
-    if (!leaseDoc.file) return;
+    if (!user || !leaseDoc.file) return;
 
     setLeaseDoc((prev) => ({
       ...prev,
@@ -313,7 +250,6 @@ export function DocumentUploader() {
       }
 
       const storedFilePath = uploadData.path;
-
       const imageDataUrl = await fileToDataUrl(leaseDoc.file);
 
       const ocrRes = await fetch("/api/ocr", {
@@ -331,7 +267,6 @@ export function DocumentUploader() {
       }
 
       const extracted = ocrData.result;
-      const submittedAt = new Date().toISOString();
 
       const extractedFields = {
         documentType: extracted.document_type || "",
@@ -368,34 +303,6 @@ export function DocumentUploader() {
         throw new Error(submitData?.error || "Failed to save verification record");
       }
 
-      const existingRaw = localStorage.getItem(getDocStatusKey());
-      const existing = existingRaw ? JSON.parse(existingRaw) : {};
-
-      const docStatus = {
-        ...existing,
-        leaseDocument: {
-          ...existing.leaseDocument,
-          verificationId: submitData?.verification?.id || null,
-          fileName: leaseDoc.fileName,
-          fileUrl: storedFilePath,
-          uploadedAt: existing?.leaseDocument?.uploadedAt || submittedAt,
-          submittedAt,
-          status: "pending",
-          uploaded: true,
-          verified: false,
-          rejected: false,
-          verifying: true,
-          supportRequested: false,
-          aiStatus: "pending",
-          sentToStaffAt: null,
-          ocrText: extracted.raw_text || "",
-          extractedFields,
-          aiConfidence:
-            typeof extracted.confidence === "number" ? extracted.confidence : 0,
-        },
-      };
-
-      localStorage.setItem(getDocStatusKey(), JSON.stringify(docStatus));
       await loadVerificationStatus();
     } catch (error) {
       console.error("OCR submit error:", error);
@@ -404,7 +311,7 @@ export function DocumentUploader() {
         status: "error",
       }));
     }
-  }, [user, leaseDoc, getDocStatusKey, loadVerificationStatus]);
+  }, [user, leaseDoc.file, leaseDoc.fileName, loadVerificationStatus]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -435,62 +342,14 @@ export function DocumentUploader() {
       progress: 0,
     });
 
-    localStorage.removeItem(getDocStatusKey());
-
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
   const handleRequestSupport = useCallback(() => {
-    if (!user) return;
-
-    try {
-      const existingRaw = localStorage.getItem(SUPPORT_REQUESTS_KEY);
-      const existing = existingRaw ? JSON.parse(existingRaw) : [];
-      const requestedAt = new Date().toISOString();
-
-      const newRequest = {
-        id: `req_${Date.now()}`,
-        type: "document_verification",
-        documentType: "Lease Documents",
-        fileName: leaseDoc.fileName,
-        requestedAt,
-        status: "pending",
-        userId: user.id,
-        userName: user.name,
-        userEmail: user.email,
-        userNote:
-          "Document could not be automatically verified. Requesting manual staff review.",
-      };
-
-      existing.push(newRequest);
-      localStorage.setItem(SUPPORT_REQUESTS_KEY, JSON.stringify(existing));
-
-      const docStatusRaw = localStorage.getItem(getDocStatusKey());
-      const current = docStatusRaw ? JSON.parse(docStatusRaw) : {};
-
-      current.leaseDocument = {
-        ...current.leaseDocument,
-        fileName: leaseDoc.fileName,
-        status: "rejected",
-        uploaded: true,
-        verified: false,
-        rejected: true,
-        supportRequested: true,
-        supportRequestId: newRequest.id,
-      };
-
-      localStorage.setItem(getDocStatusKey(), JSON.stringify(current));
-
-      setLeaseDoc((prev) => ({
-        ...prev,
-        status: "support-requested",
-      }));
-    } catch {
-      // ignore
-    }
-  }, [leaseDoc.fileName, user, getDocStatusKey]);
+    alert("Manual support request is not connected to the database yet.");
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -569,7 +428,7 @@ export function DocumentUploader() {
                     Drop your file here or click to browse
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                  Supports PDF, PNG, JPG, JPEG (max 10MB)
+                    Supports PDF, PNG, JPG, JPEG (max 10MB)
                   </p>
                 </div>
                 <input
@@ -587,7 +446,7 @@ export function DocumentUploader() {
 
               {leaseDoc.status === "error" && (
                 <p className="mt-2 text-xs text-destructive">
-                  Invalid file type or file too large. Please upload a PNG, JPG, or JPEG image under 10MB.
+                  Invalid file type or file too large. Please upload a PNG, JPG, JPEG image under 10MB.
                 </p>
               )}
             </>
@@ -773,14 +632,14 @@ export function DocumentUploader() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">{leaseDoc.fileName}</p>
-                  <p className="text-xs text-blue-700">Staff support requested</p>
+                  <p className="text-xs text-blue-700">Staff review required</p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 rounded-md bg-blue-100/60 px-3 py-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-600"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                 <p className="text-xs text-blue-700">
-                  Your request has been sent for manual staff review.
+                  Your document is awaiting manual staff review.
                 </p>
               </div>
 

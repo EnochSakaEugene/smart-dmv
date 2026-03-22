@@ -34,6 +34,13 @@ enum StaffAction {
   NOTE_ADDED
 }
 
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -51,6 +58,7 @@ model User {
   documentVerifications DocumentVerification[] @relation("UserDocumentVerifications")
   staffActivities       StaffActivity[]        @relation("UserStaffActivities")
   reviewedDocuments     DocumentVerification[] @relation("VerificationReviewedBy")
+  appointments          Appointment[]
 
   staffCaseNotes    CaseNote[] @relation("StaffCaseNotes")
   residentCaseNotes CaseNote[] @relation("ResidentCaseNotes")
@@ -87,7 +95,7 @@ model DocumentVerification {
   documentType  String
   fileName      String
   fileUrl       String?
-  caseNumber      String?              @unique
+  caseNumber    String?              @unique
   status        VerificationStatus   @default(PENDING)
   aiStatus      VerificationAiStatus @default(PENDING)
   isStaffReview Boolean              @default(false)
@@ -109,12 +117,13 @@ model DocumentVerification {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  user        User         @relation("UserDocumentVerifications", fields: [userId], references: [id])
-  application Application? @relation(fields: [applicationId], references: [id])
-  reviewedBy  User?        @relation("VerificationReviewedBy", fields: [reviewedById], references: [id])
+  user         User         @relation("UserDocumentVerifications", fields: [userId], references: [id])
+  application  Application? @relation(fields: [applicationId], references: [id])
+  reviewedBy   User?        @relation("VerificationReviewedBy", fields: [reviewedById], references: [id])
 
   staffActivities StaffActivity[]
   caseNotes       CaseNote[]
+  appointments    Appointment[]
 
   @@index([userId])
   @@index([applicationId])
@@ -123,6 +132,33 @@ model DocumentVerification {
   @@index([submittedAt])
   @@index([isActive])
   @@index([isException])
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  userId           String
+  verificationId   String?
+  locationId       String
+  locationName     String
+  locationAddress  String
+  appointmentDate  DateTime
+  timeLabel        String
+  status           AppointmentStatus @default(SCHEDULED)
+  bookedAt         DateTime          @default(now())
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  staffId          String?
+  staffName        String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user           User                  @relation(fields: [userId], references: [id])
+  verification   DocumentVerification? @relation(fields: [verificationId], references: [id])
+
+  @@index([userId])
+  @@index([verificationId])
+  @@index([status])
+  @@index([appointmentDate])
 }
 
 model StaffActivity {
