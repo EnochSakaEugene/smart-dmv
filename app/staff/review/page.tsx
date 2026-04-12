@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { CaseAiAssistant } from "@/components/staff/case-ai-assistant"
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useAuth } from "@/lib/auth-context"
+
+interface MismatchSummaryItem {
+  field: string
+  residentValue: string
+  documentValue: string
+  matched: boolean
+  weight: number
+  reason: string
+}
 
 interface VerificationRequest {
   id: string
@@ -37,11 +47,13 @@ interface VerificationRequest {
   flaggedById?: string | null
 
   reviewedBy?: string
-  reviewedAt?: string
+  reviewedAt?: string | null
   notes?: string
   ocrText?: string
   aiStatus?: string
+  aiExplanation?: string
   sentToStaffAt?: string | null
+  mismatchSummary?: MismatchSummaryItem[]
 
   extractedFields?: {
     documentType?: string
@@ -102,6 +114,32 @@ function downloadCsv(filename: string, rows: string[][]) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
+}
+
+function getAiRecommendation(doc: VerificationRequest | null) {
+  if (!doc) return "Unknown"
+
+  if (doc.status === "approved" && doc.aiStatus === "APPROVED_BY_AI") {
+    return "Auto Approved"
+  }
+
+  if (doc.isException) {
+    return "Flag Exception"
+  }
+
+  if (doc.isStaffReview) {
+    return "Staff Review"
+  }
+
+  if (doc.aiConfidence >= 0.85) {
+    return "Likely Auto Approve"
+  }
+
+  if (doc.aiConfidence < 0.45) {
+    return "Likely Exception"
+  }
+
+  return "Staff Review"
 }
 
 export default function StaffReviewPage() {
@@ -447,6 +485,7 @@ export default function StaffReviewPage() {
 
   const isPdf = selectedDoc?.fileName?.toLowerCase().endsWith(".pdf")
   const isReviewedCase = selectedDoc?.status === "approved" || selectedDoc?.status === "rejected"
+  const aiRecommendation = getAiRecommendation(selectedDoc)
 
   const handleExportReport = () => {
     const headers = [
@@ -644,6 +683,12 @@ export default function StaffReviewPage() {
                           </Badge>
                         )}
 
+                        {doc.aiStatus === "APPROVED_BY_AI" && (
+                          <Badge className="bg-green-100 text-green-700 text-[10px] hover:bg-green-100">
+                            AI Approved
+                          </Badge>
+                        )}
+
                         {filter === "reviewed" && (
                           <Badge
                             className={
@@ -709,7 +754,7 @@ export default function StaffReviewPage() {
           }
         }}
       >
-        <DialogContent className="!h-[94vh] !w-[96vw] !max-w-[1100px] overflow-y-auto p-6 sm:p-8">
+        <DialogContent className="!h-[94vh] !w-[96vw] !max-w-[1500px] overflow-y-auto p-6 sm:p-8">
           <DialogHeader>
             <DialogTitle>Review Document</DialogTitle>
             <DialogDescription>
@@ -719,7 +764,7 @@ export default function StaffReviewPage() {
 
           {selectedDoc && (
             <div className="flex flex-col gap-6 py-4">
-              <div className="grid gap-8 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="grid gap-8 xl:grid-cols-[0.9fr_0.95fr_0.85fr]">
                 <div className="flex flex-col gap-4">
                   <div>
                     <Label className="text-sm font-semibold">Document Information</Label>
@@ -782,6 +827,14 @@ export default function StaffReviewPage() {
                         </div>
                       </div>
 
+                      <div className="mt-5 rounded-md border border-blue-200 bg-blue-50 p-3">
+                        <p className="text-xs font-semibold text-blue-800">AI Recommendation</p>
+                        <p className="mt-1 text-sm font-medium text-blue-700">{aiRecommendation}</p>
+                        <p className="mt-1 text-xs text-blue-600">
+                          {selectedDoc.aiExplanation || "No AI explanation available."}
+                        </p>
+                      </div>
+
                       {isReviewedCase && (
                         <div className="mt-5 rounded-md border border-border bg-muted/40 p-3">
                           <p className="text-xs font-semibold text-foreground">Reviewed Case</p>
@@ -796,7 +849,7 @@ export default function StaffReviewPage() {
                         <div className="mt-5 rounded-md border border-red-200 bg-red-50 p-3">
                           <p className="text-xs font-semibold text-red-800">Staff Review Requested</p>
                           <p className="mt-1 text-xs text-red-600">
-                            This document was escalated to manual review because AI verification did not complete in time or the resident requested staff support.
+                            This document was escalated to manual review by the AI workflow due to confidence level or mismatch conditions.
                           </p>
                         </div>
                       )}
@@ -872,6 +925,40 @@ export default function StaffReviewPage() {
                       </div>
                     </div>
                   </div>
+
+                  {selectedDoc.mismatchSummary && selectedDoc.mismatchSummary.length > 0 && (
+                    <div>
+                      <Label className="text-sm font-semibold">AI Mismatch Summary</Label>
+                      <div className="mt-2 rounded-lg border border-border p-6">
+                        <div className="grid gap-3">
+                          {selectedDoc.mismatchSummary.map((item, index) => (
+                            <div key={`${item.field}-${index}`} className="rounded-md border p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-foreground">{item.field}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">{item.reason}</p>
+                                </div>
+                                <Badge className={item.matched ? "bg-green-100 text-green-700 hover:bg-green-100" : "bg-red-100 text-red-700 hover:bg-red-100"}>
+                                  {item.matched ? "Matched" : "Mismatch"}
+                                </Badge>
+                              </div>
+
+                              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                <div>
+                                  <p className="text-[11px] text-muted-foreground">Resident Value</p>
+                                  <p className="text-sm font-medium">{item.residentValue || "—"}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[11px] text-muted-foreground">Document Value</p>
+                                  <p className="text-sm font-medium">{item.documentValue || "—"}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <Label className="text-sm font-semibold">Review Notes</Label>
@@ -974,6 +1061,14 @@ export default function StaffReviewPage() {
                       </div>
                     )}
                   </div>
+                </div>
+
+                <div className="flex min-h-[650px] flex-col">
+                  <CaseAiAssistant
+                    verificationId={selectedDoc.id}
+                    caseNumber={selectedDoc.caseNumber}
+                    aiExplanation={selectedDoc.aiExplanation}
+                  />
                 </div>
               </div>
             </div>

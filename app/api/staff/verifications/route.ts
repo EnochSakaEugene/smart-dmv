@@ -33,7 +33,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let session;
+    let session: { userId: string; email: string; role?: string };
     try {
       session = verifySession(token);
     } catch {
@@ -158,7 +158,7 @@ export async function GET(req: Request) {
         id: item.id,
         caseNumber: item.caseNumber ?? "",
         userId: item.userId,
-        userName: `${item.user.firstName} ${item.user.lastName}`,
+        userName: `${item.user.firstName} ${item.user.lastName}`.trim(),
         userEmail: item.user.email,
         documentType: item.documentType,
         fileName: item.fileName,
@@ -174,9 +174,16 @@ export async function GET(req: Request) {
         reviewedAt: item.reviewedAt?.toISOString() ?? null,
         notes: item.reviewNotes ?? "",
         aiStatus: item.aiStatus,
+        aiExplanation: item.aiExplanation ?? "",
+        mismatchSummary: Array.isArray(item.mismatchSummary)
+          ? item.mismatchSummary
+          : [],
         sentToStaffAt: item.sentToStaffAt?.toISOString() ?? null,
         ocrText: item.ocrText ?? "",
-        extractedFields: item.extractedFields ?? {},
+        extractedFields:
+          item.extractedFields && typeof item.extractedFields === "object"
+            ? item.extractedFields
+            : {},
         residentInfo,
       };
     });

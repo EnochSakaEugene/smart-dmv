@@ -107,6 +107,8 @@ model DocumentVerification {
   flaggedById     String?
 
   aiConfidence    Float?
+  aiExplanation    String?
+  mismatchSummary  Json?
   ocrText         String?
   extractedFields Json?
   submittedAt     DateTime  @default(now())

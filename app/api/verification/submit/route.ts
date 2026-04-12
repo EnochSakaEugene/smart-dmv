@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
+import { runAgenticDocumentVerification } from "@/lib/agentic-document-verifier";
 
 function buildCaseNumber(sequence: number) {
   const year = new Date().getFullYear();
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let session;
+    let session: { userId: string; email: string; role?: string };
     try {
       session = verifySession(token);
     } catch {
@@ -41,9 +42,53 @@ export async function POST(req: Request) {
       );
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        address: true,
+        city: true,
+        zip: true,
+      },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
     const latestApplication = await prisma.application.findFirst({
       where: { userId: session.userId },
       orderBy: { createdAt: "desc" },
+    });
+
+    const safeExtractedFields =
+      extractedFields && typeof extractedFields === "object" ? extractedFields : {};
+
+    const extracted = safeExtractedFields as Record<string, unknown>;
+
+    const agentResult = runAgenticDocumentVerification({
+      resident: {
+        fullName: `${user.firstName} ${user.lastName}`.trim(),
+        firstName: user.firstName,
+        lastName: user.lastName,
+        address: user.address || "",
+        city: user.city || "",
+        zipCode: user.zip || "",
+      },
+      extracted: {
+        documentType: String(extracted.documentType || ""),
+        tenantName: String(extracted.tenantName || ""),
+        landlordName: String(extracted.landlordName || ""),
+        address: String(extracted.address || ""),
+        city: String(extracted.city || ""),
+        state: String(extracted.state || ""),
+        zipCode: String(extracted.zipCode || ""),
+        leaseStartDate: String(extracted.leaseStartDate || ""),
+        leaseEndDate: String(extracted.leaseEndDate || ""),
+      },
+      ocrConfidence: typeof aiConfidence === "number" ? aiConfidence : null,
     });
 
     const verification = await prisma.$transaction(async (tx) => {
@@ -68,16 +113,23 @@ export async function POST(req: Request) {
           fileName: String(fileName),
           fileUrl: fileUrl ? String(fileUrl) : null,
           caseNumber,
-          status: "PENDING",
-          aiStatus: "PENDING",
-          isStaffReview: false,
+          status: agentResult.decision === "AUTO_APPROVE" ? "APPROVED" : "PENDING",
+          aiStatus: agentResult.aiStatus,
+          isStaffReview: agentResult.requiresStaffReview,
           isActive: true,
-          aiConfidence: typeof aiConfidence === "number" ? aiConfidence : null,
+          isException: agentResult.isException,
+          exceptionReason: agentResult.isException ? agentResult.explanation : null,
+          aiConfidence: agentResult.confidence,
+          aiExplanation: agentResult.explanation,
+          mismatchSummary: agentResult.mismatchSummary,
           ocrText: ocrText ? String(ocrText) : null,
-          extractedFields:
-            extractedFields && typeof extractedFields === "object"
-              ? extractedFields
-              : {},
+          extractedFields: safeExtractedFields,
+          sentToStaffAt: agentResult.requiresStaffReview ? new Date() : null,
+          reviewedAt: agentResult.decision === "AUTO_APPROVE" ? new Date() : null,
+          reviewNotes:
+            agentResult.decision === "AUTO_APPROVE"
+              ? agentResult.explanation
+              : null,
         },
       });
     });
@@ -89,18 +141,17 @@ export async function POST(req: Request) {
         submittedAt: verification.submittedAt.toISOString(),
         sentToStaffAt: verification.sentToStaffAt?.toISOString() ?? null,
         reviewedAt: verification.reviewedAt?.toISOString() ?? null,
+        flaggedAt: verification.flaggedAt?.toISOString() ?? null,
         createdAt: verification.createdAt.toISOString(),
         updatedAt: verification.updatedAt.toISOString(),
       },
+      agent: agentResult,
     });
   } catch (error) {
     console.error("POST /api/verification/submit error:", error);
 
     if (error instanceof Error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json(
