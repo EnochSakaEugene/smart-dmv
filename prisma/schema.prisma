@@ -41,6 +41,20 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum AuditStatus {
+  SUCCESS
+  FAILED
+}
+
+enum AuditCategory {
+  LOGIN
+  DOCUMENT
+  USER
+  CONFIG
+  REPORT
+  SYSTEM
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -59,6 +73,7 @@ model User {
   staffActivities       StaffActivity[]        @relation("UserStaffActivities")
   reviewedDocuments     DocumentVerification[] @relation("VerificationReviewedBy")
   appointments          Appointment[]
+  auditLogs AuditLog[]
 
   staffCaseNotes    CaseNote[] @relation("StaffCaseNotes")
   residentCaseNotes CaseNote[] @relation("ResidentCaseNotes")
@@ -196,4 +211,24 @@ model CaseNote {
   @@index([staffId])
   @@index([residentId])
   @@index([createdAt])
+}
+
+model AuditLog {
+  id         String        @id @default(cuid())
+  action     String
+  actorId    String?
+  actorEmail String?
+  target     String?
+  ipAddress  String?
+  status     AuditStatus   @default(SUCCESS)
+  category   AuditCategory
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+
+  actor      User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([category])
+  @@index([status])
+  @@index([actorId])
 }

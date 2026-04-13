@@ -2,29 +2,86 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { signSession } from "@/lib/auth";
+import { getRequestIp } from "@/lib/request-ip";
 
 export async function POST(req: Request) {
   try {
     const { email, password } = await req.json();
 
     if (!email || !password) {
+      await prisma.auditLog.create({
+        data: {
+          action: "Login failed",
+          actorEmail: String(email || "").toLowerCase().trim() || "Unknown",
+          target: "System",
+          ipAddress: "Unknown",
+          status: "FAILED",
+          category: "LOGIN",
+          metadata: {
+            reason: "Missing email or password",
+            source: "login-route-direct",
+          },
+        },
+      });
+
       return NextResponse.json(
-        { error: "Email and password required" },
+        { error: "Email and password are required" },
         { status: 400 }
       );
     }
 
+    const ipAddress = await getRequestIp();
+    const normalizedEmail = String(email).toLowerCase().trim();
+
     const user = await prisma.user.findUnique({
-      where: { email: String(email).toLowerCase().trim() },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      await prisma.auditLog.create({
+        data: {
+          action: "Login failed",
+          actorEmail: normalizedEmail,
+          target: "System",
+          ipAddress,
+          status: "FAILED",
+          category: "LOGIN",
+          metadata: {
+            reason: "User not found",
+            source: "login-route-direct",
+          },
+        },
+      });
+
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      );
     }
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    const isValid = await bcrypt.compare(password, user.password);
+
+    if (!isValid) {
+      await prisma.auditLog.create({
+        data: {
+          action: "Login failed",
+          actorId: user.id,
+          actorEmail: user.email,
+          target: "System",
+          ipAddress,
+          status: "FAILED",
+          category: "LOGIN",
+          metadata: {
+            reason: "Invalid password",
+            source: "login-route-direct",
+          },
+        },
+      });
+
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      );
     }
 
     const token = signSession({
@@ -47,7 +104,26 @@ export async function POST(req: Request) {
       createdAt: user.createdAt.toISOString(),
     };
 
-    const res = NextResponse.json({ ok: true, user: safeUser });
+    await prisma.auditLog.create({
+      data: {
+        action: "User login",
+        actorId: user.id,
+        actorEmail: user.email,
+        target: "System",
+        ipAddress,
+        status: "SUCCESS",
+        category: "LOGIN",
+        metadata: {
+          role: user.role,
+          source: "login-route-direct",
+        },
+      },
+    });
+
+    const res = NextResponse.json({
+      ok: true,
+      user: safeUser,
+    });
 
     res.cookies.set("session", token, {
       httpOnly: true,
@@ -59,7 +135,13 @@ export async function POST(req: Request) {
 
     return res;
   } catch (error) {
-    console.error("Login error:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("POST /api/auth/login error:", error);
+
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Login failed",
+      },
+      { status: 500 }
+    );
   }
 }

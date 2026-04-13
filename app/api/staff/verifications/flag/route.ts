@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
+import { createAuditLog } from "@/lib/audit";
+import { getRequestIp } from "@/lib/request-ip";
 
 export async function POST(req: Request) {
   try {
@@ -12,7 +14,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let session;
+    let session: { userId: string; email: string; role?: string };
     try {
       session = verifySession(token);
     } catch {
@@ -34,6 +36,10 @@ export async function POST(req: Request) {
 
     const verification = await prisma.documentVerification.findUnique({
       where: { id: verificationId },
+      select: {
+        id: true,
+        caseNumber: true,
+      },
     });
 
     if (!verification) {
@@ -43,12 +49,16 @@ export async function POST(req: Request) {
       );
     }
 
+    const ipAddress = await getRequestIp();
+    const exceptionReason =
+      reason?.trim() || "Flagged by staff for manual exception review";
+
     const updated = await prisma.$transaction(async (tx) => {
       const flagged = await tx.documentVerification.update({
         where: { id: verificationId },
         data: {
           isException: true,
-          exceptionReason: reason?.trim() || "Flagged by staff for manual exception review",
+          exceptionReason,
           flaggedAt: new Date(),
           flaggedById: session.userId,
         },
@@ -66,6 +76,21 @@ export async function POST(req: Request) {
       return flagged;
     });
 
+    await createAuditLog({
+      action: "Exception flagged",
+      actorId: session.userId,
+      actorEmail: session.email,
+      target: verification.caseNumber || verification.id,
+      ipAddress,
+      status: "SUCCESS",
+      category: "DOCUMENT",
+      metadata: {
+        verificationId: verification.id,
+        reason: exceptionReason,
+        flaggedById: session.userId,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       verification: {
@@ -78,7 +103,12 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("POST /api/staff/verifications/flag error:", error);
     return NextResponse.json(
-      { error: "Failed to flag verification" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to flag verification",
+      },
       { status: 500 }
     );
   }

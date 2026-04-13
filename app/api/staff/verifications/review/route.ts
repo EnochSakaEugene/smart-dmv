@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
+import { createAuditLog } from "@/lib/audit";
+import { getRequestIp } from "@/lib/request-ip";
 
 export async function POST(req: Request) {
   try {
@@ -12,7 +14,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let session;
+    let session: { userId: string; email: string; role?: string };
     try {
       session = verifySession(token);
     } catch {
@@ -39,7 +41,23 @@ export async function POST(req: Request) {
       );
     }
 
+    const ipAddress = await getRequestIp();
+
     const result = await prisma.$transaction(async (tx) => {
+      const existingVerification = await tx.documentVerification.findUnique({
+        where: { id: verificationId },
+        select: {
+          id: true,
+          caseNumber: true,
+          status: true,
+          userId: true,
+        },
+      });
+
+      if (!existingVerification) {
+        throw new Error("Verification not found");
+      }
+
       const verification = await tx.documentVerification.update({
         where: { id: verificationId },
         data: {
@@ -47,7 +65,10 @@ export async function POST(req: Request) {
           reviewedById: session.userId,
           reviewedAt: new Date(),
           reviewNotes: notes ?? "",
-          aiStatus: decision === "APPROVED" ? "APPROVED_BY_STAFF" : "REJECTED_BY_STAFF",
+          aiStatus:
+            decision === "APPROVED"
+              ? "APPROVED_BY_STAFF"
+              : "REJECTED_BY_STAFF",
         },
       });
 
@@ -59,10 +80,31 @@ export async function POST(req: Request) {
           notes: notes ?? "",
         },
       });
-      
-      console.log("STAFF ACTIVITY CREATED:", activity.id, activity.action, activity.createdAt);
+
+      console.log(
+        "STAFF ACTIVITY CREATED:",
+        activity.id,
+        activity.action,
+        activity.createdAt
+      );
 
       return verification;
+    });
+
+    await createAuditLog({
+      action: decision === "APPROVED" ? "Document approved" : "Document rejected",
+      actorId: session.userId,
+      actorEmail: session.email,
+      target: result.caseNumber || result.id,
+      ipAddress,
+      status: "SUCCESS",
+      category: "DOCUMENT",
+      metadata: {
+        verificationId: result.id,
+        decision,
+        notes: notes ?? "",
+        reviewedById: session.userId,
+      },
     });
 
     return NextResponse.json({
@@ -71,8 +113,14 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("POST /api/staff/verifications/review error:", error);
+
     return NextResponse.json(
-      { error: "Failed to review verification" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to review verification",
+      },
       { status: 500 }
     );
   }

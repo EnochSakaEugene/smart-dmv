@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AdminSidebar } from "@/components/admin/admin-sidebar"
@@ -14,9 +14,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { usePathname } from "next/navigation"
 
-// Page title mapping
 const pageTitles: Record<string, string> = {
   "/admin": "Dashboard",
   "/admin/analytics": "Analytics",
@@ -48,7 +46,7 @@ export default function AdminLayout({
     if (!isLoading && mounted) {
       if (!user) {
         router.push("/")
-      } else if (user.role !== "admin" && user.role !== "staff") {
+      } else if (user.role !== "ADMIN" && user.role !== "STAFF") {
         router.push("/")
       }
     }
@@ -65,7 +63,7 @@ export default function AdminLayout({
     )
   }
 
-  if (!user || (user.role !== "admin" && user.role !== "staff")) {
+  if (!user || (user.role !== "ADMIN" && user.role !== "STAFF")) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 text-center">
@@ -73,7 +71,7 @@ export default function AdminLayout({
             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-destructive"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
           <h2 className="text-xl font-semibold">Access Denied</h2>
-          <p className="text-sm text-muted-foreground max-w-sm">
+          <p className="max-w-sm text-sm text-muted-foreground">
             You do not have permission to access the admin dashboard. Please contact your administrator.
           </p>
         </div>
@@ -105,7 +103,7 @@ export default function AdminLayout({
               )}
             </BreadcrumbList>
           </Breadcrumb>
-          
+
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden text-xs text-muted-foreground sm:inline-block">
               {new Date().toLocaleDateString("en-US", {
@@ -117,6 +115,7 @@ export default function AdminLayout({
             </span>
           </div>
         </header>
+
         <main className="flex-1 overflow-auto p-4 md:p-6">
           {children}
         </main>
