@@ -8,6 +8,14 @@ import { Navbar } from "@/components/landing/navbar";
 import { Footer } from "@/components/landing/footer";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const DMV_LOCATIONS = [
   {
@@ -151,6 +159,8 @@ export default function AppointmentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [appointmentBooked, setAppointmentBooked] = useState(false);
   const [existingAppointment, setExistingAppointment] = useState<CurrentAppointment | null>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelMessage, setCancelMessage] = useState("");
 
   const maxDate = useMemo(() => {
     const date = new Date();
@@ -289,8 +299,43 @@ export default function AppointmentPage() {
     }
   };
 
-  const handleCancelAppointment = () => {
-    alert("Appointment cancellation is not connected to the database yet.");
+  const handleCancelAppointment = async () => {
+    if (!existingAppointment) return;
+
+    try {
+      setIsSubmitting(true);
+      setCancelMessage("");
+
+      const res = await fetch("/api/appointment/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          appointmentId: existingAppointment.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to cancel appointment");
+      }
+
+      setShowCancelDialog(false);
+      setExistingAppointment(null);
+      setAppointmentBooked(false);
+      setSelectedDate(undefined);
+      setSelectedLocation(null);
+      setSelectedTime(null);
+    } catch (error) {
+      setCancelMessage(
+        error instanceof Error ? error.message : "Failed to cancel appointment"
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoading || !ready) {
@@ -378,6 +423,7 @@ export default function AppointmentPage() {
                       </p>
                     </div>
                   </div>
+
                   <div className="flex items-start gap-3">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-primary"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                     <div>
@@ -385,6 +431,7 @@ export default function AppointmentPage() {
                       <p className="text-sm font-medium text-foreground">{existingAppointment.timeLabel}</p>
                     </div>
                   </div>
+
                   <div className="flex items-start gap-3">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-primary"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
                     <div>
@@ -402,8 +449,8 @@ export default function AppointmentPage() {
                   <div>
                     <p className="text-xs font-semibold text-blue-800">What to bring</p>
                     <ul className="mt-1 list-inside list-disc text-xs text-blue-700">
-                      <li>Valid identification (passport, state ID)</li>
-                      <li>Proof of residency (your uploaded document)</li>
+                      <li>Valid identification passport or state ID</li>
+                      <li>Proof of residency your uploaded document</li>
                       <li>Payment for applicable fees</li>
                       <li>Confirmation number: {existingAppointment.id}</li>
                     </ul>
@@ -424,13 +471,70 @@ export default function AppointmentPage() {
                 >
                   Reschedule
                 </Button>
-                <Button onClick={handleCancelAppointment} variant="destructive">
+
+                <Button onClick={() => setShowCancelDialog(true)} variant="destructive">
                   Cancel Appointment
                 </Button>
               </div>
             </div>
           </div>
         </main>
+
+        <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Cancel Appointment</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to cancel this appointment? This action will update the appointment in the database.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="rounded-lg border border-border bg-muted/30 p-4 text-left">
+              <p className="text-sm font-semibold text-foreground">
+                {existingAppointment.locationName}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {new Date(existingAppointment.appointmentDate).toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}{" "}
+                at {existingAppointment.timeLabel}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Confirmation #: {existingAppointment.id}
+              </p>
+            </div>
+
+            {cancelMessage && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {cancelMessage}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCancelMessage("");
+                  setShowCancelDialog(false);
+                }}
+                disabled={isSubmitting}
+              >
+                Keep Appointment
+              </Button>
+
+              <Button
+                variant="destructive"
+                onClick={handleCancelAppointment}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Cancelling..." : "Yes, Cancel Appointment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Footer />
       </div>
@@ -479,6 +583,7 @@ export default function AppointmentPage() {
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">1</div>
               <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">Select Date</h3>
             </div>
+
             <div className="flex justify-center">
               <Calendar
                 mode="single"
@@ -497,6 +602,7 @@ export default function AppointmentPage() {
                 className="rounded-md border"
               />
             </div>
+
             <p className="mt-3 text-center text-xs text-muted-foreground">
               Note: Most locations are closed on weekends. Inspection Station is open on Saturdays.
             </p>
@@ -611,6 +717,7 @@ export default function AppointmentPage() {
                     </p>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-primary"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                   <div>
@@ -618,6 +725,7 @@ export default function AppointmentPage() {
                     <p className="text-sm font-medium text-foreground">{selectedTime}</p>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-primary"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
                   <div>

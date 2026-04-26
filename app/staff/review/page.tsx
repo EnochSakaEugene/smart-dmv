@@ -84,6 +84,7 @@ interface VerificationCounts {
   staffReview: number
   lowConfidence: number
   reviewed: number
+  aiApproved: number
 }
 
 function normalizeValue(value?: string) {
@@ -93,7 +94,6 @@ function normalizeValue(value?: string) {
 function valuesLooselyMatch(a?: string, b?: string) {
   const first = normalizeValue(a)
   const second = normalizeValue(b)
-
   if (!first || !second) return false
   return first.includes(second) || second.includes(first)
 }
@@ -104,7 +104,6 @@ function downloadCsv(filename: string, rows: string[][]) {
       row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")
     )
     .join("\n")
-
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
@@ -118,27 +117,11 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 function getAiRecommendation(doc: VerificationRequest | null) {
   if (!doc) return "Unknown"
-
-  if (doc.status === "approved" && doc.aiStatus === "APPROVED_BY_AI") {
-    return "Auto Approved"
-  }
-
-  if (doc.isException) {
-    return "Flag Exception"
-  }
-
-  if (doc.isStaffReview) {
-    return "Staff Review"
-  }
-
-  if (doc.aiConfidence >= 0.85) {
-    return "Likely Auto Approve"
-  }
-
-  if (doc.aiConfidence < 0.45) {
-    return "Likely Exception"
-  }
-
+  if (doc.status === "approved" && doc.aiStatus === "APPROVED_BY_AI") return "Auto Approved by AI"
+  if (doc.isException) return "Flag Exception"
+  if (doc.isStaffReview) return "Staff Review"
+  if (doc.aiConfidence >= 0.85) return "Likely Auto Approve"
+  if (doc.aiConfidence < 0.45) return "Likely Exception"
   return "Staff Review"
 }
 
@@ -153,9 +136,10 @@ export default function StaffReviewPage() {
     staffReview: 0,
     lowConfidence: 0,
     reviewed: 0,
+    aiApproved: 0,
   })
   const [searchQuery, setSearchQuery] = useState("")
-  const [filter, setFilter] = useState<"all" | "staff-review" | "low-confidence" | "reviewed">("all")
+  const [filter, setFilter] = useState<"all" | "staff-review" | "low-confidence" | "reviewed" | "ai-approved">("all")
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -174,14 +158,9 @@ export default function StaffReviewPage() {
     setSelectedDoc(null)
     setReviewNotes("")
     setShowRawOcr(false)
-
     const params = new URLSearchParams(searchParams.toString())
     params.delete("case")
-
-    const nextUrl = params.toString()
-      ? `/staff/review?${params.toString()}`
-      : "/staff/review"
-
+    const nextUrl = params.toString() ? `/staff/review?${params.toString()}` : "/staff/review"
     router.replace(nextUrl)
   }, [router, searchParams])
 
@@ -195,50 +174,26 @@ export default function StaffReviewPage() {
         }
 
         const params = new URLSearchParams()
-
-        if (filter !== "all") {
-          params.set("filter", filter)
-        }
-
-        if (searchQuery.trim()) {
-          params.set("q", searchQuery.trim())
-        }
+        if (filter !== "all") params.set("filter", filter)
+        if (searchQuery.trim()) params.set("q", searchQuery.trim())
 
         const queryString = params.toString()
-        const url = queryString
-          ? `/api/staff/verifications?${queryString}`
-          : "/api/staff/verifications"
+        const url = queryString ? `/api/staff/verifications?${queryString}` : "/api/staff/verifications"
 
-        const res = await fetch(url, {
-          credentials: "include",
-          cache: "no-store",
-        })
-
+        const res = await fetch(url, { credentials: "include", cache: "no-store" })
         const data = await res.json()
 
-        if (!res.ok) {
-          throw new Error(data?.error || "Failed to load verifications")
-        }
+        if (!res.ok) throw new Error(data?.error || "Failed to load verifications")
 
         setQueue(data.verifications || [])
         setCounts(
-          data.counts || {
-            pending: 0,
-            staffReview: 0,
-            lowConfidence: 0,
-            reviewed: 0,
-          }
+          data.counts || { pending: 0, staffReview: 0, lowConfidence: 0, reviewed: 0, aiApproved: 0 }
         )
       } catch (error) {
         console.error("Failed to load staff queue:", error)
         if (!silent) {
           setQueue([])
-          setCounts({
-            pending: 0,
-            staffReview: 0,
-            lowConfidence: 0,
-            reviewed: 0,
-          })
+          setCounts({ pending: 0, staffReview: 0, lowConfidence: 0, reviewed: 0, aiApproved: 0 })
         }
       } finally {
         if (silent) {
@@ -253,9 +208,7 @@ export default function StaffReviewPage() {
 
   useEffect(() => {
     loadQueue(false)
-    const interval = setInterval(() => {
-      loadQueue(true)
-    }, 10000)
+    const interval = setInterval(() => loadQueue(true), 10000)
     return () => clearInterval(interval)
   }, [loadQueue])
 
@@ -269,13 +222,8 @@ export default function StaffReviewPage() {
           credentials: "include",
           cache: "no-store",
         })
-
         const data = await res.json()
-
-        if (!res.ok) {
-          throw new Error(data?.error || "Failed to load case")
-        }
-
+        if (!res.ok) throw new Error(data?.error || "Failed to load case")
         const matched = data.verifications?.[0]
         if (matched) {
           setSelectedDoc(matched)
@@ -293,27 +241,15 @@ export default function StaffReviewPage() {
   const handleApprove = async () => {
     if (!selectedDoc) return
     setIsReviewing(true)
-
     try {
       const res = await fetch("/api/staff/verifications/review", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          verificationId: selectedDoc.id,
-          decision: "APPROVED",
-          notes: reviewNotes,
-        }),
+        body: JSON.stringify({ verificationId: selectedDoc.id, decision: "APPROVED", notes: reviewNotes }),
       })
-
       const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to approve verification")
-      }
-
+      if (!res.ok) throw new Error(data?.error || "Failed to approve verification")
       closeReviewDialog()
       await loadQueue(true)
     } catch (error) {
@@ -326,27 +262,15 @@ export default function StaffReviewPage() {
   const handleReject = async () => {
     if (!selectedDoc) return
     setIsReviewing(true)
-
     try {
       const res = await fetch("/api/staff/verifications/review", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          verificationId: selectedDoc.id,
-          decision: "REJECTED",
-          notes: reviewNotes,
-        }),
+        body: JSON.stringify({ verificationId: selectedDoc.id, decision: "REJECTED", notes: reviewNotes }),
       })
-
       const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to reject verification")
-      }
-
+      if (!res.ok) throw new Error(data?.error || "Failed to reject verification")
       closeReviewDialog()
       await loadQueue(true)
     } catch (error) {
@@ -359,26 +283,15 @@ export default function StaffReviewPage() {
   const handleFlagException = async () => {
     if (!selectedDoc) return
     setIsFlagging(true)
-
     try {
       const res = await fetch("/api/staff/verifications/flag", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          verificationId: selectedDoc.id,
-          reason: reviewNotes,
-        }),
+        body: JSON.stringify({ verificationId: selectedDoc.id, reason: reviewNotes }),
       })
-
       const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to flag exception")
-      }
-
+      if (!res.ok) throw new Error(data?.error || "Failed to flag exception")
       closeReviewDialog()
       await loadQueue(true)
     } catch (error) {
@@ -390,21 +303,12 @@ export default function StaffReviewPage() {
 
   const handleOpenDocument = useCallback(async () => {
     if (!selectedDoc) return
-
     try {
       setDocumentViewerLoading(true)
       setDocumentViewerOpen(true)
-
-      const res = await fetch(`/api/staff/verifications/${selectedDoc.id}/file`, {
-        credentials: "include",
-      })
-
+      const res = await fetch(`/api/staff/verifications/${selectedDoc.id}/file`, { credentials: "include" })
       const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to load document")
-      }
-
+      if (!res.ok) throw new Error(data?.error || "Failed to load document")
       setDocumentViewerUrl(data?.signedUrl || null)
     } catch (error) {
       console.error("Failed to open document:", error)
@@ -416,15 +320,11 @@ export default function StaffReviewPage() {
 
   const visibleDocs = queue
     .filter((v) => {
-      if (filter === "reviewed") {
-        return v.status === "approved" || v.status === "rejected"
-      }
-
+      if (filter === "reviewed") return v.status === "approved" || v.status === "rejected"
+      if (filter === "ai-approved") return v.aiStatus === "APPROVED_BY_AI" && v.status === "approved"
       if (v.status !== "pending") return false
-
       if (filter === "staff-review") return v.isStaffReview
       if (filter === "low-confidence") return v.aiConfidence < 0.7
-
       return true
     })
     .filter((v) =>
@@ -436,31 +336,19 @@ export default function StaffReviewPage() {
     )
     .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
 
-  const pendingCount = counts.pending
-  const staffReviewCount = counts.staffReview
-  const lowConfidenceCount = counts.lowConfidence
-  const reviewedCount = counts.reviewed
-
   const comparison = useMemo(() => {
     if (!selectedDoc) {
       return {
-        residentFullName: "",
-        leaseTenantName: "",
-        residentAddress: "",
-        leaseAddress: "",
-        residentZip: "",
-        leaseZip: "",
-        nameMatch: false,
-        addressMatch: false,
-        zipMatch: false,
+        residentFullName: "", leaseTenantName: "",
+        residentAddress: "", leaseAddress: "",
+        residentZip: "", leaseZip: "",
+        nameMatch: false, addressMatch: false, zipMatch: false,
       }
     }
 
     const residentFullName =
       selectedDoc.residentInfo?.fullName ||
-      [selectedDoc.residentInfo?.firstName, selectedDoc.residentInfo?.lastName]
-        .filter(Boolean)
-        .join(" ")
+      [selectedDoc.residentInfo?.firstName, selectedDoc.residentInfo?.lastName].filter(Boolean).join(" ")
 
     const leaseTenantName = selectedDoc.extractedFields?.tenantName || ""
     const residentAddress = selectedDoc.residentInfo?.address || ""
@@ -469,58 +357,48 @@ export default function StaffReviewPage() {
     const leaseZip = selectedDoc.extractedFields?.zipCode || ""
 
     return {
-      residentFullName,
-      leaseTenantName,
-      residentAddress,
-      leaseAddress,
-      residentZip,
-      leaseZip,
+      residentFullName, leaseTenantName, residentAddress, leaseAddress, residentZip, leaseZip,
       nameMatch: valuesLooselyMatch(residentFullName, leaseTenantName),
       addressMatch: valuesLooselyMatch(residentAddress, leaseAddress),
-      zipMatch:
-        normalizeValue(residentZip) !== "" &&
-        normalizeValue(residentZip) === normalizeValue(leaseZip),
+      zipMatch: normalizeValue(residentZip) !== "" && normalizeValue(residentZip) === normalizeValue(leaseZip),
     }
   }, [selectedDoc])
 
   const isPdf = selectedDoc?.fileName?.toLowerCase().endsWith(".pdf")
   const isReviewedCase = selectedDoc?.status === "approved" || selectedDoc?.status === "rejected"
+  const isAiApprovedCase = selectedDoc?.aiStatus === "APPROVED_BY_AI"
   const aiRecommendation = getAiRecommendation(selectedDoc)
 
   const handleExportReport = () => {
     const headers = [
-      "Case Number",
-      "Resident Name",
-      "Email",
-      "Document Type",
-      "File Name",
-      "Status",
-      "AI Confidence",
-      "Submitted At",
-      "Reviewed At",
-      "Exception Flagged",
-      "Exception Reason",
+      "Case Number", "Resident Name", "Email", "Document Type", "File Name",
+      "Status", "AI Status", "AI Confidence", "Submitted At", "Reviewed At",
+      "Exception Flagged", "Exception Reason",
     ]
-
     const rows = visibleDocs.map((doc) => [
-      doc.caseNumber || "",
-      doc.userName,
-      doc.userEmail,
-      doc.documentType,
-      doc.fileName,
-      doc.status,
-      `${Math.round(doc.aiConfidence * 100)}%`,
+      doc.caseNumber || "", doc.userName, doc.userEmail, doc.documentType,
+      doc.fileName, doc.status, doc.aiStatus || "", `${Math.round(doc.aiConfidence * 100)}%`,
       new Date(doc.submittedAt).toLocaleString(),
       doc.reviewedAt ? new Date(doc.reviewedAt).toLocaleString() : "",
-      doc.isException ? "Yes" : "No",
-      doc.exceptionReason || "",
+      doc.isException ? "Yes" : "No", doc.exceptionReason || "",
     ])
-
-    downloadCsv(
-      filter === "reviewed" ? "reviewed-cases-report.csv" : "document-review-report.csv",
-      [headers, ...rows]
-    )
+    const filename =
+      filter === "reviewed" ? "reviewed-cases-report.csv" :
+      filter === "ai-approved" ? "ai-approved-cases-report.csv" :
+      "document-review-report.csv"
+    downloadCsv(filename, [headers, ...rows])
   }
+
+  const pageTitle =
+    filter === "reviewed" ? "Reviewed Cases" :
+    filter === "ai-approved" ? "AI Approved Cases" :
+    "Pending Reviews"
+
+  const pageDescription =
+    isLoading ? "Loading documents..." :
+    filter === "reviewed" ? `${visibleDocs.length} reviewed case${visibleDocs.length !== 1 ? "s" : ""}` :
+    filter === "ai-approved" ? `${visibleDocs.length} case${visibleDocs.length !== 1 ? "s" : ""} auto-approved by AI` :
+    `${visibleDocs.length} document${visibleDocs.length !== 1 ? "s" : ""} awaiting review`
 
   return (
     <div className="flex flex-col gap-6">
@@ -529,14 +407,8 @@ export default function StaffReviewPage() {
         <p className="text-sm text-muted-foreground">
           Review and verify documents flagged by AI or requested for staff review
         </p>
-        {user && (
-          <p className="text-xs text-muted-foreground">
-            Signed in as {user.name}
-          </p>
-        )}
-        {isRefreshing && (
-          <p className="text-xs text-muted-foreground">Refreshing…</p>
-        )}
+        {user && <p className="text-xs text-muted-foreground">Signed in as {user.name}</p>}
+        {isRefreshing && <p className="text-xs text-muted-foreground">Refreshing…</p>}
       </div>
 
       <Card>
@@ -548,28 +420,35 @@ export default function StaffReviewPage() {
                 className="cursor-pointer"
                 onClick={() => setFilter("all")}
               >
-                All Pending ({pendingCount})
+                All Pending ({counts.pending})
               </Badge>
               <Badge
                 variant={filter === "staff-review" ? "default" : "outline"}
                 className={`cursor-pointer ${filter === "staff-review" ? "bg-red-600" : ""}`}
                 onClick={() => setFilter("staff-review")}
               >
-                Staff Review ({staffReviewCount})
+                Staff Review ({counts.staffReview})
               </Badge>
               <Badge
                 variant={filter === "low-confidence" ? "default" : "outline"}
                 className={`cursor-pointer ${filter === "low-confidence" ? "bg-orange-600" : ""}`}
                 onClick={() => setFilter("low-confidence")}
               >
-                Low Confidence ({lowConfidenceCount})
+                Low Confidence ({counts.lowConfidence})
+              </Badge>
+              <Badge
+                variant={filter === "ai-approved" ? "default" : "outline"}
+                className={`cursor-pointer ${filter === "ai-approved" ? "bg-green-600" : ""}`}
+                onClick={() => setFilter("ai-approved")}
+              >
+                AI Approved ({counts.aiApproved})
               </Badge>
               <Badge
                 variant={filter === "reviewed" ? "default" : "outline"}
                 className={`cursor-pointer ${filter === "reviewed" ? "bg-slate-700" : ""}`}
                 onClick={() => setFilter("reviewed")}
               >
-                Reviewed Cases ({reviewedCount})
+                Reviewed Cases ({counts.reviewed})
               </Badge>
             </div>
 
@@ -582,7 +461,6 @@ export default function StaffReviewPage() {
               >
                 Generate Report
               </Button>
-
               <div className="relative">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <Input
@@ -599,16 +477,8 @@ export default function StaffReviewPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">
-            {filter === "reviewed" ? "Reviewed Cases" : "Pending Reviews"}
-          </CardTitle>
-          <CardDescription>
-            {isLoading
-              ? "Loading documents..."
-              : filter === "reviewed"
-                ? `${visibleDocs.length} reviewed case${visibleDocs.length !== 1 ? "s" : ""}`
-                : `${visibleDocs.length} document${visibleDocs.length !== 1 ? "s" : ""} awaiting review`}
-          </CardDescription>
+          <CardTitle className="text-lg">{pageTitle}</CardTitle>
+          <CardDescription>{pageDescription}</CardDescription>
         </CardHeader>
 
         <CardContent>
@@ -621,12 +491,14 @@ export default function StaffReviewPage() {
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/30"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>
               <p className="mt-4 text-sm font-medium text-muted-foreground">
-                {filter === "reviewed" ? "No reviewed cases" : "No pending documents"}
+                {filter === "reviewed" ? "No reviewed cases" :
+                 filter === "ai-approved" ? "No AI approved cases" :
+                 "No pending documents"}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {filter === "reviewed"
-                  ? "No approved or rejected cases found"
-                  : "All documents have been reviewed"}
+                {filter === "reviewed" ? "No approved or rejected cases found" :
+                 filter === "ai-approved" ? "No documents have been auto-approved by AI yet" :
+                 "All documents have been reviewed"}
               </p>
             </div>
           ) : (
@@ -635,82 +507,63 @@ export default function StaffReviewPage() {
                 <div
                   key={doc.id}
                   className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between ${
-                    doc.isStaffReview ? "border-red-200 bg-red-50" : "border-border"
+                    doc.aiStatus === "APPROVED_BY_AI" && doc.status === "approved"
+                      ? "border-green-200 bg-green-50"
+                      : doc.isStaffReview
+                        ? "border-red-200 bg-red-50"
+                        : "border-border"
                   }`}
                 >
                   <div className="flex items-center gap-4">
                     <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${
-                      doc.status === "approved"
-                        ? "bg-green-100"
-                        : doc.status === "rejected"
-                          ? "bg-red-100"
-                          : doc.isStaffReview
-                            ? "bg-red-100"
-                            : doc.aiConfidence < 0.7
-                              ? "bg-orange-100"
-                              : "bg-amber-100"
+                      doc.aiStatus === "APPROVED_BY_AI" ? "bg-green-100" :
+                      doc.status === "approved" ? "bg-green-100" :
+                      doc.status === "rejected" ? "bg-red-100" :
+                      doc.isStaffReview ? "bg-red-100" :
+                      doc.aiConfidence < 0.7 ? "bg-orange-100" : "bg-amber-100"
                     }`}>
                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={
-                        doc.status === "approved"
-                          ? "text-green-600"
-                          : doc.status === "rejected"
-                            ? "text-red-600"
-                            : doc.isStaffReview
-                              ? "text-red-600"
-                              : doc.aiConfidence < 0.7
-                                ? "text-orange-600"
-                                : "text-amber-600"
+                        doc.aiStatus === "APPROVED_BY_AI" ? "text-green-600" :
+                        doc.status === "approved" ? "text-green-600" :
+                        doc.status === "rejected" ? "text-red-600" :
+                        doc.isStaffReview ? "text-red-600" :
+                        doc.aiConfidence < 0.7 ? "text-orange-600" : "text-amber-600"
                       }><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </div>
 
                     <div>
-                      <p className="text-xs font-semibold text-primary">
-                        {doc.caseNumber || "No Case ID"}
-                      </p>
-
+                      <p className="text-xs font-semibold text-primary">{doc.caseNumber || "No Case ID"}</p>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium">{doc.documentType}</p>
-
-                        {doc.isStaffReview && doc.status === "pending" && (
-                          <Badge variant="destructive" className="text-[10px]">
-                            Staff Review Required
-                          </Badge>
-                        )}
-
-                        {doc.isException && (
-                          <Badge className="bg-red-100 text-red-700 text-[10px] hover:bg-red-100">
-                            Exception Flagged
-                          </Badge>
-                        )}
-
                         {doc.aiStatus === "APPROVED_BY_AI" && (
                           <Badge className="bg-green-100 text-green-700 text-[10px] hover:bg-green-100">
                             AI Approved
                           </Badge>
                         )}
-
-                        {filter === "reviewed" && (
-                          <Badge
-                            className={
-                              doc.status === "approved"
-                                ? "bg-green-100 text-green-700 hover:bg-green-100"
-                                : "bg-red-100 text-red-700 hover:bg-red-100"
-                            }
-                          >
+                        {doc.isStaffReview && doc.status === "pending" && (
+                          <Badge variant="destructive" className="text-[10px]">Staff Review Required</Badge>
+                        )}
+                        {doc.isException && (
+                          <Badge className="bg-red-100 text-red-700 text-[10px] hover:bg-red-100">Exception Flagged</Badge>
+                        )}
+                        {(filter === "reviewed") && (
+                          <Badge className={
+                            doc.status === "approved"
+                              ? "bg-green-100 text-green-700 hover:bg-green-100"
+                              : "bg-red-100 text-red-700 hover:bg-red-100"
+                          }>
                             {doc.status}
                           </Badge>
                         )}
                       </div>
-
-                      <p className="text-xs text-muted-foreground">
-                        {doc.userName} • {doc.fileName}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{doc.userName} • {doc.fileName}</p>
                       <p className="text-xs text-muted-foreground">
                         Submitted {new Date(doc.submittedAt).toLocaleString()}
                       </p>
                       {doc.reviewedAt && (
                         <p className="text-xs text-muted-foreground">
-                          Reviewed {new Date(doc.reviewedAt).toLocaleString()}
+                          {doc.aiStatus === "APPROVED_BY_AI" ? "AI approved" : "Reviewed"}{" "}
+                          {new Date(doc.reviewedAt).toLocaleString()}
                         </p>
                       )}
                     </div>
@@ -727,16 +580,16 @@ export default function StaffReviewPage() {
                         {Math.round(doc.aiConfidence * 100)}%
                       </Badge>
                     </div>
-
                     <Button
                       size="sm"
+                      variant={doc.aiStatus === "APPROVED_BY_AI" ? "outline" : "default"}
                       onClick={() => {
                         setSelectedDoc(doc)
                         setReviewNotes(doc.notes || "")
                         setShowRawOcr(false)
                       }}
                     >
-                      Review
+                      {doc.aiStatus === "APPROVED_BY_AI" ? "View" : "Review"}
                     </Button>
                   </div>
                 </div>
@@ -746,24 +599,38 @@ export default function StaffReviewPage() {
         </CardContent>
       </Card>
 
-      <Dialog
-        open={!!selectedDoc}
-        onOpenChange={(open) => {
-          if (!open) {
-            closeReviewDialog()
-          }
-        }}
-      >
+      <Dialog open={!!selectedDoc} onOpenChange={(open) => { if (!open) closeReviewDialog() }}>
         <DialogContent className="!h-[94vh] !w-[96vw] !max-w-[1500px] overflow-y-auto p-6 sm:p-8">
           <DialogHeader>
-            <DialogTitle>Review Document</DialogTitle>
+            <DialogTitle>
+              {isAiApprovedCase ? "AI Approved Case" : "Review Document"}
+            </DialogTitle>
             <DialogDescription>
-              Compare the uploaded document with the resident’s submitted information, then approve, reject, or flag it as an exception.
+              {isAiApprovedCase
+                ? "This document was automatically approved by AI. Staff can override this decision by rejecting or flagging it as an exception."
+                : "Compare the uploaded document with the resident's submitted information, then approve, reject, or flag it as an exception."}
             </DialogDescription>
           </DialogHeader>
 
           {selectedDoc && (
             <div className="flex flex-col gap-6 py-4">
+              {/* AI Approved banner */}
+              {isAiApprovedCase && (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-green-800">Auto-Approved by AI</p>
+                      <p className="text-xs text-green-700">
+                        AI confidence: {Math.round(selectedDoc.aiConfidence * 100)}% — All key fields matched the resident's submitted information.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-8 xl:grid-cols-[0.9fr_0.95fr_0.85fr]">
                 <div className="flex flex-col gap-4">
                   <div>
@@ -798,30 +665,23 @@ export default function StaffReviewPage() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Current Status</p>
-                          <Badge
-                            className={
-                              selectedDoc.status === "approved"
-                                ? "bg-green-100 text-green-700 hover:bg-green-100"
-                                : selectedDoc.status === "rejected"
-                                  ? "bg-red-100 text-red-700 hover:bg-red-100"
-                                  : "bg-amber-100 text-amber-700 hover:bg-amber-100"
-                            }
-                          >
+                          <Badge className={
+                            selectedDoc.status === "approved"
+                              ? "bg-green-100 text-green-700 hover:bg-green-100"
+                              : selectedDoc.status === "rejected"
+                                ? "bg-red-100 text-red-700 hover:bg-red-100"
+                                : "bg-amber-100 text-amber-700 hover:bg-amber-100"
+                          }>
                             {selectedDoc.status}
                           </Badge>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">AI Confidence</p>
-                          <Badge
-                            variant="secondary"
-                            className={`${
-                              selectedDoc.aiConfidence >= 0.8
-                                ? "bg-green-100 text-green-700"
-                                : selectedDoc.aiConfidence >= 0.6
-                                  ? "bg-amber-100 text-amber-700"
-                                  : "bg-red-100 text-red-700"
-                            }`}
-                          >
+                          <Badge variant="secondary" className={`${
+                            selectedDoc.aiConfidence >= 0.8 ? "bg-green-100 text-green-700" :
+                            selectedDoc.aiConfidence >= 0.6 ? "bg-amber-100 text-amber-700" :
+                            "bg-red-100 text-red-700"
+                          }`}>
                             {Math.round(selectedDoc.aiConfidence * 100)}%
                           </Badge>
                         </div>
@@ -835,7 +695,16 @@ export default function StaffReviewPage() {
                         </p>
                       </div>
 
-                      {isReviewedCase && (
+                      {isAiApprovedCase && (
+                        <div className="mt-5 rounded-md border border-green-200 bg-green-50 p-3">
+                          <p className="text-xs font-semibold text-green-800">AI Auto-Approved</p>
+                          <p className="mt-1 text-xs text-green-700">
+                            This document was approved automatically. Staff may reject or flag it if the decision appears incorrect.
+                          </p>
+                        </div>
+                      )}
+
+                      {isReviewedCase && !isAiApprovedCase && (
                         <div className="mt-5 rounded-md border border-border bg-muted/40 p-3">
                           <p className="text-xs font-semibold text-foreground">Reviewed Case</p>
                           <p className="mt-1 text-xs text-muted-foreground">
@@ -849,7 +718,7 @@ export default function StaffReviewPage() {
                         <div className="mt-5 rounded-md border border-red-200 bg-red-50 p-3">
                           <p className="text-xs font-semibold text-red-800">Staff Review Requested</p>
                           <p className="mt-1 text-xs text-red-600">
-                            This document was escalated to manual review by the AI workflow due to confidence level or mismatch conditions.
+                            This document was escalated to manual review by the AI workflow.
                           </p>
                         </div>
                       )}
@@ -942,7 +811,6 @@ export default function StaffReviewPage() {
                                   {item.matched ? "Matched" : "Mismatch"}
                                 </Badge>
                               </div>
-
                               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                 <div>
                                   <p className="text-[11px] text-muted-foreground">Resident Value</p>
@@ -1046,11 +914,8 @@ export default function StaffReviewPage() {
                           Expand only if you need the full extracted text from the document.
                         </p>
                       </div>
-                      <span className="text-sm text-muted-foreground">
-                        {showRawOcr ? "Hide" : "Show"}
-                      </span>
+                      <span className="text-sm text-muted-foreground">{showRawOcr ? "Hide" : "Show"}</span>
                     </button>
-
                     {showRawOcr && (
                       <div className="border-t border-border p-4">
                         <div className="h-72 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4">
@@ -1075,11 +940,7 @@ export default function StaffReviewPage() {
           )}
 
           <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              onClick={closeReviewDialog}
-              disabled={isReviewing || isFlagging}
-            >
+            <Button variant="outline" onClick={closeReviewDialog} disabled={isReviewing || isFlagging}>
               Cancel
             </Button>
 
@@ -1087,15 +948,13 @@ export default function StaffReviewPage() {
               type="button"
               variant="outline"
               onClick={handleFlagException}
-              disabled={isReviewing || isFlagging || isReviewedCase || selectedDoc?.isException}
+              disabled={isReviewing || isFlagging || selectedDoc?.isException}
               className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-50"
             >
               {isFlagging ? (
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-orange-700 border-t-transparent" />
               ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 22V4a2 2 0 0 1 2-2h11l3 3v17l-8-4-8 4z" />
-                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22V4a2 2 0 0 1 2-2h11l3 3v17l-8-4-8 4z"/></svg>
               )}
               {selectedDoc?.isException ? "Already Flagged" : "Flag Exception"}
             </Button>
@@ -1103,7 +962,7 @@ export default function StaffReviewPage() {
             <Button
               variant="destructive"
               onClick={handleReject}
-              disabled={isReviewing || isFlagging || isReviewedCase}
+              disabled={isReviewing || isFlagging}
               className="gap-2"
             >
               {isReviewing ? (
@@ -1114,18 +973,21 @@ export default function StaffReviewPage() {
               Reject
             </Button>
 
-            <Button
-              onClick={handleApprove}
-              disabled={isReviewing || isFlagging || isReviewedCase}
-              className="gap-2 bg-green-600 hover:bg-green-700"
-            >
-              {isReviewing ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              )}
-              Approve
-            </Button>
+            {/* Hide Approve for AI-approved cases since they're already approved */}
+            {!isAiApprovedCase && (
+              <Button
+                onClick={handleApprove}
+                disabled={isReviewing || isFlagging || isReviewedCase}
+                className="gap-2 bg-green-600 hover:bg-green-700"
+              >
+                {isReviewing ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                )}
+                Approve
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1134,11 +996,8 @@ export default function StaffReviewPage() {
         <DialogContent className="max-h-[95vh] max-w-7xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>View Document</DialogTitle>
-            <DialogDescription>
-              Full-size document viewer for staff review.
-            </DialogDescription>
+            <DialogDescription>Full-size document viewer for staff review.</DialogDescription>
           </DialogHeader>
-
           <div className="h-[80vh] rounded-lg border border-border bg-muted/20">
             {documentViewerLoading ? (
               <div className="flex h-full items-center justify-center">
@@ -1152,17 +1011,9 @@ export default function StaffReviewPage() {
                 Document unavailable
               </div>
             ) : isPdf ? (
-              <iframe
-                src={documentViewerUrl}
-                title="Full document viewer"
-                className="h-full w-full"
-              />
+              <iframe src={documentViewerUrl} title="Full document viewer" className="h-full w-full" />
             ) : (
-              <img
-                src={documentViewerUrl}
-                alt={selectedDoc?.fileName || "Document"}
-                className="h-full w-full object-contain"
-              />
+              <img src={documentViewerUrl} alt={selectedDoc?.fileName || "Document"} className="h-full w-full object-contain" />
             )}
           </div>
         </DialogContent>

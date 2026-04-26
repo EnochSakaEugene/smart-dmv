@@ -37,11 +37,13 @@ export default function ApplicationPage() {
   const [ready, setReady] = useState(false);
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
+  const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
   const [documentStatus, setDocumentStatus] = useState<
     "not_uploaded" | "pending" | "approved" | "rejected"
   >("not_uploaded");
   const [canScheduleAppointment, setCanScheduleAppointment] = useState(false);
-  const [verification, setVerification] = useState<ApplicationStatusResponse["verification"]>(null);
+  const [verification, setVerification] =
+    useState<ApplicationStatusResponse["verification"]>(null);
 
   useEffect(() => {
     if (isLoading) return;
@@ -60,16 +62,26 @@ export default function ApplicationPage() {
           cache: "no-store",
         });
 
-        const data = (await res.json().catch(() => null)) as ApplicationStatusResponse | null;
+        const data = (await res.json().catch(() => null)) as
+          | ApplicationStatusResponse
+          | null;
 
         if (!cancelled) {
-          setFormSubmitted(!!data?.formSubmitted);
+          const status = data?.status ?? null;
+
+          setApplicationStatus(status);
+
+          // IMPORTANT:
+          // A rejected application must reopen the form for editing.
+          setFormSubmitted(!!data?.formSubmitted && status !== "REJECTED");
+
           setDocumentStatus(data?.documentStatus ?? "not_uploaded");
           setCanScheduleAppointment(!!data?.canScheduleAppointment);
           setVerification(data?.verification ?? null);
         }
       } catch {
         if (!cancelled) {
+          setApplicationStatus(null);
           setFormSubmitted(false);
           setDocumentStatus("not_uploaded");
           setCanScheduleAppointment(false);
@@ -138,10 +150,12 @@ export default function ApplicationPage() {
                   </svg>
                 </div>
                 <div>
-                  <h1 className="text-lg font-bold text-green-800">Application Submitted</h1>
+                  <h1 className="text-lg font-bold text-green-800">
+                    Application Submitted
+                  </h1>
                   <p className="mt-1 text-sm text-green-700">
-                    Your application has already been submitted successfully. You cannot edit the
-                    form anymore from this page.
+                    Your application has already been submitted successfully.
+                    You cannot edit the form anymore from this page.
                   </p>
                 </div>
               </div>
@@ -154,12 +168,18 @@ export default function ApplicationPage() {
 
               <div className="mt-4 space-y-4">
                 <div className="rounded-md border border-border bg-background p-4">
-                  <p className="text-xs uppercase text-muted-foreground">Application Status</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">Submitted</p>
+                  <p className="text-xs uppercase text-muted-foreground">
+                    Application Status
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    Submitted
+                  </p>
                 </div>
 
                 <div className="rounded-md border border-border bg-background p-4">
-                  <p className="text-xs uppercase text-muted-foreground">Document Review Status</p>
+                  <p className="text-xs uppercase text-muted-foreground">
+                    Document Review Status
+                  </p>
 
                   {documentStatus === "not_uploaded" && (
                     <p className="mt-1 text-sm font-medium text-amber-700">
@@ -179,7 +199,8 @@ export default function ApplicationPage() {
                       )}
                       {verification?.submittedAt && (
                         <p className="text-xs text-muted-foreground">
-                          Submitted: {new Date(verification.submittedAt).toLocaleString()}
+                          Submitted:{" "}
+                          {new Date(verification.submittedAt).toLocaleString()}
                         </p>
                       )}
                     </div>
@@ -187,7 +208,9 @@ export default function ApplicationPage() {
 
                   {documentStatus === "approved" && (
                     <div className="mt-1 space-y-1">
-                      <p className="text-sm font-medium text-green-700">Documents approved</p>
+                      <p className="text-sm font-medium text-green-700">
+                        Documents approved
+                      </p>
                       {verification?.fileName && (
                         <p className="text-xs text-muted-foreground">
                           File: {verification.fileName}
@@ -195,7 +218,8 @@ export default function ApplicationPage() {
                       )}
                       {verification?.reviewedAt && (
                         <p className="text-xs text-muted-foreground">
-                          Approved: {new Date(verification.reviewedAt).toLocaleString()}
+                          Approved:{" "}
+                          {new Date(verification.reviewedAt).toLocaleString()}
                         </p>
                       )}
                     </div>
@@ -213,7 +237,8 @@ export default function ApplicationPage() {
                       )}
                       {verification?.reviewedAt && (
                         <p className="text-xs text-muted-foreground">
-                          Reviewed: {new Date(verification.reviewedAt).toLocaleString()}
+                          Reviewed:{" "}
+                          {new Date(verification.reviewedAt).toLocaleString()}
                         </p>
                       )}
                     </div>
@@ -275,14 +300,34 @@ export default function ApplicationPage() {
 
       <main className="flex-1">
         <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+          {applicationStatus === "REJECTED" && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+              <h3 className="text-sm font-semibold text-red-800">
+                Application Needs Correction
+              </h3>
+              <p className="mt-1 text-sm text-red-700">
+                Your application was rejected. Please review your information,
+                make the necessary changes, and resubmit.
+              </p>
+              {verification?.reviewedAt && (
+                <p className="mt-2 text-xs text-red-700">
+                  Last reviewed:{" "}
+                  {new Date(verification.reviewedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="mb-6 text-center">
             <h1 className="text-xl font-bold uppercase tracking-wide text-foreground sm:text-2xl">
               DC Driver License or Identification Card
             </h1>
-            <h2 className="text-lg font-bold uppercase text-foreground">Application</h2>
+            <h2 className="text-lg font-bold uppercase text-foreground">
+              Application
+            </h2>
             <p className="mt-2 text-xs italic text-muted-foreground">
-              The information you provide will be used to register you to vote unless you decline in
-              Section G.
+              The information you provide will be used to register you to vote
+              unless you decline in Section G.
             </p>
           </div>
 

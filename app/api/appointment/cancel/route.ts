@@ -67,9 +67,7 @@ export async function POST(req: Request) {
           reviewedAt: new Date(),
           reviewNotes: notes ?? "",
           aiStatus:
-            decision === "APPROVED"
-              ? "APPROVED_BY_STAFF"
-              : "REJECTED_BY_STAFF",
+            decision === "APPROVED" ? "APPROVED_BY_STAFF" : "REJECTED_BY_STAFF",
         },
       });
 
@@ -78,6 +76,20 @@ export async function POST(req: Request) {
           where: { id: existingVerification.applicationId },
           data: {
             status: decision === "APPROVED" ? "APPROVED" : "REJECTED",
+          },
+        });
+      }
+
+      // ✅ When rejected, cancel any scheduled appointment for this user
+      if (decision === "REJECTED") {
+        await tx.appointment.updateMany({
+          where: {
+            userId: existingVerification.userId,
+            status: "SCHEDULED",
+          },
+          data: {
+            status: "CANCELLED",
+            cancelledAt: new Date(),
           },
         });
       }

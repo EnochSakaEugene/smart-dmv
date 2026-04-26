@@ -56,9 +56,12 @@ export async function GET(req: Request) {
     if (caseNumber) {
       where.caseNumber = caseNumber;
     } else if (filter === "reviewed") {
-      where.status = {
-        in: ["APPROVED", "REJECTED"],
-      };
+      where.status = { in: ["APPROVED", "REJECTED"] };
+      // Exclude AI auto-approved from the reviewed tab
+      where.aiStatus = { not: "APPROVED_BY_AI" };
+    } else if (filter === "ai-approved") {
+      where.aiStatus = "APPROVED_BY_AI";
+      where.status = "APPROVED";
     } else {
       where.status = "PENDING";
       where.isActive = true;
@@ -89,6 +92,7 @@ export async function GET(req: Request) {
       staffReviewCount,
       lowConfidenceCount,
       reviewedCount,
+      aiApprovedCount,
     ] = await Promise.all([
       prisma.documentVerification.findMany({
         where,
@@ -126,9 +130,15 @@ export async function GET(req: Request) {
 
       prisma.documentVerification.count({
         where: {
-          status: {
-            in: ["APPROVED", "REJECTED"],
-          },
+          status: { in: ["APPROVED", "REJECTED"] },
+          aiStatus: { not: "APPROVED_BY_AI" },
+        },
+      }),
+
+      prisma.documentVerification.count({
+        where: {
+          aiStatus: "APPROVED_BY_AI",
+          status: "APPROVED",
         },
       }),
     ]);
@@ -144,7 +154,9 @@ export async function GET(req: Request) {
       const residentInfo = {
         fullName:
           formData.fullName ||
-          `${item.user.firstName || ""} ${item.user.lastName || ""}`.trim(),
+          (formData.firstName || formData.lastName
+            ? `${formData.firstName || ""} ${formData.lastName || ""}`.trim()
+            : `${item.user.firstName || ""} ${item.user.lastName || ""}`.trim()),
         firstName: formData.firstName || item.user.firstName || "",
         lastName: formData.lastName || item.user.lastName || "",
         phone: formData.phone || item.user.phone || "",
@@ -196,6 +208,7 @@ export async function GET(req: Request) {
         staffReview: staffReviewCount,
         lowConfidence: lowConfidenceCount,
         reviewed: reviewedCount,
+        aiApproved: aiApprovedCount,
       },
     });
   } catch (error) {

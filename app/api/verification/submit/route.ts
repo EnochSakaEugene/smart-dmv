@@ -9,6 +9,16 @@ function buildCaseNumber(sequence: number) {
   return `CASE-${year}-${String(sequence).padStart(6, "0")}`;
 }
 
+function getStringValue(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
 export async function POST(req: Request) {
   try {
     const cookieStore = await cookies();
@@ -58,24 +68,76 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // ✅ No status filter — find any application so form data is always available
+    // for the side-by-side comparison and AI assistant on the staff review page
     const latestApplication = await prisma.application.findFirst({
       where: { userId: session.userId },
-      orderBy: { createdAt: "desc" },
+      orderBy: { updatedAt: "desc" },
     });
 
+    const applicationFormData =
+      latestApplication?.formData &&
+      typeof latestApplication.formData === "object" &&
+      !Array.isArray(latestApplication.formData)
+        ? (latestApplication.formData as Record<string, unknown>)
+        : {};
+
+    // Prefer form data, fall back to user record
+    const residentFirstName =
+      getStringValue(applicationFormData, ["firstName", "first_name"]) ||
+      user.firstName;
+
+    const residentLastName =
+      getStringValue(applicationFormData, ["lastName", "last_name"]) ||
+      user.lastName;
+
+    const residentFullName =
+      getStringValue(applicationFormData, ["fullName", "full_name", "name"]) ||
+      `${residentFirstName} ${residentLastName}`.trim();
+
+    const residentAddress =
+      getStringValue(applicationFormData, [
+        "address",
+        "streetAddress",
+        "street_address",
+        "residentialAddress",
+        "residential_address",
+      ]) || user.address || "";
+
+    const residentCity =
+      getStringValue(applicationFormData, ["city", "residentialCity"]) ||
+      user.city || "";
+
+    const residentState =
+      getStringValue(applicationFormData, ["state", "residentialState"]) || "";
+
+    const residentZip =
+      getStringValue(applicationFormData, [
+        "zipCode",
+        "zip",
+        "zipcode",
+        "postalCode",
+        "postal_code",
+      ]) || user.zip || "";
+
     const safeExtractedFields =
-      extractedFields && typeof extractedFields === "object" ? extractedFields : {};
+      extractedFields &&
+      typeof extractedFields === "object" &&
+      !Array.isArray(extractedFields)
+        ? extractedFields
+        : {};
 
     const extracted = safeExtractedFields as Record<string, unknown>;
 
     const agentResult = runAgenticDocumentVerification({
       resident: {
-        fullName: `${user.firstName} ${user.lastName}`.trim(),
-        firstName: user.firstName,
-        lastName: user.lastName,
-        address: user.address || "",
-        city: user.city || "",
-        zipCode: user.zip || "",
+        fullName: residentFullName,
+        firstName: residentFirstName,
+        lastName: residentLastName,
+        address: residentAddress,
+        city: residentCity,
+        state: residentState,
+        zipCode: residentZip,
       },
       extracted: {
         documentType: String(extracted.documentType || ""),

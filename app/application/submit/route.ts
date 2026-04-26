@@ -5,10 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 
 const META_KEY = "__META__";
+const SUBMITTABLE_STATUSES = ["DRAFT", "REJECTED"] as const;
 
 async function getUserIdFromSession() {
   const cookieStore = await cookies();
   const token = cookieStore.get("session")?.value;
+
   if (!token) return null;
 
   try {
@@ -19,127 +21,187 @@ async function getUserIdFromSession() {
   }
 }
 
-function mergeStepData(steps: Array<{ stepKey: string; payload: any }>) {
-  const merged: Record<string, any> = {};
-  for (const s of steps) {
-    if (s.stepKey === META_KEY) continue;
-    const payload = s.payload as any;
+function mergeStepData(steps: Array<{ stepKey: string; payload: unknown }>) {
+  const merged: Record<string, unknown> = {};
+
+  for (const step of steps) {
+    if (step.stepKey === META_KEY) continue;
+
+    const payload = step.payload as { data?: Record<string, unknown> } | null;
+
     if (payload?.data && typeof payload.data === "object") {
       Object.assign(merged, payload.data);
     }
   }
+
   return merged;
 }
 
-// optional: normalize a few common fields before canonical save
-function normalizeCanonical(data: Record<string, any>) {
+function normalizeCanonical(data: Record<string, unknown>) {
   const out = { ...data };
-  if (typeof out.email === "string") out.email = out.email.trim().toLowerCase();
-  if (typeof out.firstName === "string") out.firstName = out.firstName.trim();
-  if (typeof out.lastName === "string") out.lastName = out.lastName.trim();
+
+  if (typeof out.email === "string") {
+    out.email = out.email.trim().toLowerCase();
+  }
+
+  if (typeof out.firstName === "string") {
+    out.firstName = out.firstName.trim();
+  }
+
+  if (typeof out.lastName === "string") {
+    out.lastName = out.lastName.trim();
+  }
+
+  if (typeof out.phone === "string") {
+    out.phone = out.phone.trim();
+  }
+
+  if (typeof out.address === "string") {
+    out.address = out.address.trim();
+  }
+
+  if (typeof out.city === "string") {
+    out.city = out.city.trim();
+  }
+
+  if (typeof out.state === "string") {
+    out.state = out.state.trim().toUpperCase();
+  }
+
+  if (typeof out.zipCode === "string") {
+    out.zipCode = out.zipCode.trim();
+  }
+
   return out;
 }
 
 export async function POST(req: Request) {
   try {
     const userId = await getUserIdFromSession();
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Optional: allow client to submit a specific draft id
-    const body = await req.json().catch(() => ({} as any));
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
     const requestedApplicationId =
-      typeof body?.applicationId === "string" && body.applicationId.trim()
-        ? body.applicationId.trim()
+      typeof (body as any)?.applicationId === "string" &&
+      (body as any).applicationId.trim()
+        ? (body as any).applicationId.trim()
         : null;
 
     const result = await prisma.$transaction(async (tx) => {
-      // Pick a draft to submit:
       const app = requestedApplicationId
         ? await tx.application.findFirst({
-            where: { id: requestedApplicationId, userId, status: "DRAFT" },
+            where: {
+              id: requestedApplicationId,
+              userId,
+              status: {
+                in: [...SUBMITTABLE_STATUSES],
+              },
+            },
             include: { steps: true },
           })
         : await tx.application.findFirst({
-            where: { userId, status: "DRAFT" },
+            where: {
+              userId,
+              status: {
+                in: [...SUBMITTABLE_STATUSES],
+              },
+            },
             orderBy: { updatedAt: "desc" },
             include: { steps: true },
           });
 
       if (!app) {
-        return { ok: false as const, status: 404 as const, payload: { error: "No draft found" } };
-      }
-
-      if (app.status !== "DRAFT") {
         return {
-          ok: false as const,
-          status: 409 as const,
-          payload: { error: "Application is not a draft" },
+          status: 404,
+          payload: {
+            error: "No draft or rejected application found",
+          },
         };
       }
 
-      // Basic sanity: must have at least one saved step payload (non-meta)
-      const nonMetaSteps = app.steps.filter((s) => s.stepKey !== META_KEY);
+      const previousStatus = app.status;
+      const isResubmission = previousStatus === "REJECTED";
+
+      const nonMetaSteps = app.steps.filter((step) => step.stepKey !== META_KEY);
+
       if (nonMetaSteps.length === 0) {
         return {
-          ok: false as const,
-          status: 400 as const,
-          payload: { error: "Draft has no saved data" },
+          status: 400,
+          payload: {
+            error: "Application has no saved data",
+          },
         };
       }
 
-      // Merge all saved step snapshots
       const mergedDataRaw = mergeStepData(app.steps);
       const mergedData = normalizeCanonical(mergedDataRaw);
 
-      // Minimal validation (edit as you like)
       const required = ["email", "firstName", "lastName", "phone"] as const;
-      const missing = required.filter((k) => !mergedData?.[k]);
-      if (missing.length) {
+      const missing = required.filter((key) => !mergedData?.[key]);
+
+      if (missing.length > 0) {
         return {
-          ok: false as const,
-          status: 400 as const,
-          payload: { error: "Missing required fields", missing },
+          status: 400,
+          payload: {
+            error: "Missing required fields",
+            missing,
+          },
         };
       }
 
-      // ✅ Canonical save + mark submitted
       await tx.application.update({
         where: { id: app.id },
         data: {
           status: "SUBMITTED",
-          formData: mergedData, // ✅ canonical snapshot
+          formData: mergedData,
         },
       });
 
-      // Store submit meta (optional)
       await tx.applicationStep.upsert({
-        where: { applicationId_stepKey: { applicationId: app.id, stepKey: META_KEY } },
+        where: {
+          applicationId_stepKey: {
+            applicationId: app.id,
+            stepKey: META_KEY,
+          },
+        },
         create: {
           applicationId: app.id,
           stepKey: META_KEY,
           payload: {
+            currentStep: 0,
             submittedAt: new Date().toISOString(),
             submittedBy: userId,
+            resubmitted: isResubmission,
+            previousStatus,
           },
         },
         update: {
           payload: {
+            currentStep: 0,
             submittedAt: new Date().toISOString(),
             submittedBy: userId,
+            resubmitted: isResubmission,
+            previousStatus,
           },
         },
       });
 
       return {
-        ok: true as const,
-        status: 200 as const,
-        payload: { ok: true, applicationId: app.id },
+        status: 200,
+        payload: {
+          ok: true,
+          applicationId: app.id,
+          resubmitted: isResubmission,
+        },
       };
     });
 
     return NextResponse.json(result.payload, { status: result.status });
-  } catch (e) {
-    console.error("submit error:", e);
+  } catch (error) {
+    console.error("POST /application/submit error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

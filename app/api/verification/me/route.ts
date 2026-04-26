@@ -34,6 +34,26 @@ async function escalateResidentTimedOutVerification(userId: string) {
   });
 }
 
+function getStringValue(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = data[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function normalizeApplicationFormData(formData: unknown) {
+  if (!formData || typeof formData !== "object" || Array.isArray(formData)) {
+    return {};
+  }
+
+  return formData as Record<string, unknown>;
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -43,7 +63,8 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let session;
+    let session: { userId: string; email: string; role?: string };
+
     try {
       session = verifySession(token);
     } catch {
@@ -69,6 +90,79 @@ export async function GET() {
       });
     }
 
+    const application = verification.applicationId
+      ? await prisma.application.findFirst({
+          where: {
+            id: verification.applicationId,
+            userId: session.userId,
+          },
+          select: {
+            id: true,
+            status: true,
+            formData: true,
+          },
+        })
+      : await prisma.application.findFirst({
+          where: {
+            userId: session.userId,
+          },
+          orderBy: {
+            updatedAt: "desc",
+          },
+          select: {
+            id: true,
+            status: true,
+            formData: true,
+          },
+        });
+
+    const formData = normalizeApplicationFormData(application?.formData);
+
+    const firstName = getStringValue(formData, ["firstName", "first_name"]);
+    const lastName = getStringValue(formData, ["lastName", "last_name"]);
+    const fullName =
+      getStringValue(formData, ["fullName", "full_name", "name"]) ||
+      `${firstName} ${lastName}`.trim();
+
+    const residentInfo = {
+      fullName,
+      firstName,
+      lastName,
+      phone: getStringValue(formData, ["phone", "cellPhone", "cell_phone"]),
+      address: getStringValue(formData, [
+        "address",
+        "streetAddress",
+        "street_address",
+        "residentialAddress",
+        "residential_address",
+      ]),
+      apartmentName: getStringValue(formData, [
+        "apartmentName",
+        "apartment_name",
+        "buildingName",
+        "building_name",
+      ]),
+      aptUnit: getStringValue(formData, [
+        "aptUnit",
+        "apt_unit",
+        "unit",
+        "unitNumber",
+        "unit_number",
+      ]),
+      city: getStringValue(formData, ["city", "residentialCity"]),
+      state: getStringValue(formData, ["state", "residentialState"]),
+      zipCode: getStringValue(formData, [
+        "zipCode",
+        "zip",
+        "zipcode",
+        "postalCode",
+        "postal_code",
+      ]),
+      ssnLast4: getStringValue(formData, ["ssnLast4", "ssn_last4"]),
+      applicationId: application?.id ?? null,
+      applicationStatus: application?.status ?? null,
+    };
+
     return NextResponse.json({
       success: true,
       verification: {
@@ -81,6 +175,7 @@ export async function GET() {
         aiConfidence: verification.aiConfidence,
         ocrText: verification.ocrText,
         extractedFields: verification.extractedFields,
+        residentInfo,
         submittedAt: verification.submittedAt.toISOString(),
         sentToStaffAt: verification.sentToStaffAt?.toISOString() ?? null,
         reviewedAt: verification.reviewedAt?.toISOString() ?? null,
@@ -89,6 +184,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error("GET /api/verification/me error:", error);
+
     return NextResponse.json(
       { error: "Failed to load verification status" },
       { status: 500 }

@@ -8,6 +8,9 @@ export interface SectionBDefaults {
   address?: string;
   city?: string;
   zip?: string;
+  apartmentName?: string;
+  aptUnit?: string;
+  ssnLast4?: string;
 }
 
 function FormField({
@@ -82,27 +85,33 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
         {/* Row 2: Address */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <FormField
-            label="Address where you live (a mailing only address cannot be used)"
-            className="sm:col-span-8"
+            label="Street Address"
+            className="sm:col-span-6"
           >
             <TextInput name="address" defaultValue={d.address} />
           </FormField>
 
-          <FormField label="Apt/Unit #" className="sm:col-span-2">
-            <TextInput name="aptUnit" />
+          {/* NEW: Apartment Name */}
+          <FormField label="Apartment / Building Name" className="sm:col-span-3">
+            <TextInput name="apartmentName" defaultValue={d.apartmentName} />
           </FormField>
 
-          <FormField label="City & State" className="sm:col-span-2">
-            <TextInput name="city" defaultValue={d.city || "Washington, DC"} />
+          <FormField label="Apt / Unit #" className="sm:col-span-3">
+            <TextInput name="aptUnit" defaultValue={d.aptUnit} />
           </FormField>
         </div>
 
-        {/* Row 2b: ZIP */}
+        {/* Row 2b: City + ZIP */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-          <FormField label="ZIP Code" className="sm:col-span-2">
+          <FormField label="City & State" className="sm:col-span-6">
+            <TextInput name="city" defaultValue={d.city || "Washington, DC"} />
+          </FormField>
+
+          <FormField label="ZIP Code" className="sm:col-span-3">
             <TextInput name="zip" defaultValue={d.zip} />
           </FormField>
-          <div className="sm:col-span-10" />
+
+          <div className="sm:col-span-3" />
         </div>
 
         {/* Row 3: DOB, SSN, Citizen, Gender */}
@@ -116,7 +125,7 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
                 maxLength={2}
                 className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
               />
-              <span className="text-muted-foreground">/</span>
+              <span>/</span>
               <input
                 type="text"
                 name="dobDay"
@@ -124,7 +133,7 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
                 maxLength={2}
                 className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
               />
-              <span className="text-muted-foreground">/</span>
+              <span>/</span>
               <input
                 type="text"
                 name="dobYear"
@@ -135,17 +144,25 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
             </div>
           </FormField>
 
-          <FormField label="Social Security #" className="sm:col-span-3">
-            <TextInput name="ssn" />
+          {/* UPDATED: SSN LAST 4 ONLY */}
+          <FormField label="SSN (Last 4 Digits Only)" className="sm:col-span-3">
+            <input
+              type="text"
+              name="ssnLast4"
+              maxLength={4}
+              placeholder="XXXX"
+              defaultValue={d.ssnLast4}
+              className="border-b border-foreground/30 bg-transparent py-1 text-sm tracking-widest outline-none focus:border-foreground"
+            />
           </FormField>
 
           <FormField label="US Citizen" className="sm:col-span-2">
             <div className="flex items-center gap-3 py-1">
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="usCitizen" value="yes" className="accent-foreground" /> Yes
+                <input type="radio" name="usCitizen" value="yes" /> Yes
               </label>
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="usCitizen" value="no" className="accent-foreground" /> No
+                <input type="radio" name="usCitizen" value="no" /> No
               </label>
             </div>
           </FormField>
@@ -153,61 +170,19 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
           <FormField label="Gender" className="sm:col-span-4">
             <div className="flex items-center gap-3 py-1">
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="gender" value="male" className="accent-foreground" /> Male
+                <input type="radio" name="gender" value="male" /> Male
               </label>
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="gender" value="female" className="accent-foreground" /> Female
+                <input type="radio" name="gender" value="female" /> Female
               </label>
               <label className="flex items-center gap-1 text-sm">
-                <input type="radio" name="gender" value="unspecified" className="accent-foreground" /> Unspecified
+                <input type="radio" name="gender" value="unspecified" /> Unspecified
               </label>
             </div>
           </FormField>
         </div>
 
-        {/* Row 4: Weight, Height, Hair, Eye, Other names */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-12">
-          <FormField label="Weight" className="sm:col-span-2">
-            <div className="flex items-center gap-1">
-              <TextInput name="weight" className="w-full" />
-              <span className="whitespace-nowrap text-xs text-muted-foreground">LBS</span>
-            </div>
-          </FormField>
-
-          <FormField label="Height" className="sm:col-span-2">
-            <div className="flex items-center gap-1">
-              <input
-                type="text"
-                name="heightFt"
-                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
-              />
-              <span className="text-xs text-muted-foreground">FT</span>
-              <input
-                type="text"
-                name="heightIn"
-                className="w-8 border-b border-foreground/30 bg-transparent py-1 text-center text-sm outline-none focus:border-foreground"
-              />
-              <span className="text-xs text-muted-foreground">IN</span>
-            </div>
-          </FormField>
-
-          <FormField label="Hair Color" className="sm:col-span-2">
-            <TextInput name="hairColor" />
-          </FormField>
-
-          <FormField label="Eye Color" className="sm:col-span-2">
-            <TextInput name="eyeColor" />
-          </FormField>
-
-          <FormField
-            label="Other names you have used on a Driver License or ID Card"
-            className="sm:col-span-4"
-          >
-            <TextInput name="otherNames" />
-          </FormField>
-        </div>
-
-        {/* Row 5: Phone, Email */}
+        {/* Row 4: Phone + Email */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
           <FormField label="Cell Phone" className="sm:col-span-3">
             <TextInput name="phone" defaultValue={d.phone} />
@@ -217,17 +192,7 @@ export function SectionB({ defaults }: { defaults?: SectionBDefaults }) {
             <TextInput name="alternatePhone" />
           </FormField>
 
-          <FormField label="Text Notification" className="sm:col-span-2">
-            <div className="flex items-center gap-2 py-1">
-              <label className="flex items-center gap-1 text-sm">
-                <input type="checkbox" name="textNotification" className="h-4 w-4 accent-foreground" />
-                Yes
-              </label>
-              <span className="text-[10px] text-muted-foreground">Standard rates apply</span>
-            </div>
-          </FormField>
-
-          <FormField label="Email" className="sm:col-span-4">
+          <FormField label="Email" className="sm:col-span-6">
             <TextInput name="email" defaultValue={d.email} />
           </FormField>
         </div>
