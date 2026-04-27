@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -14,13 +15,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-const DOC_STATUS_KEY = "dmv_document_status"
-const SUPPORT_REQUESTS_KEY = "dmv_support_requests"
-const VERIFICATION_QUEUE_KEY = "dmv_verification_queue"
-const USERS_KEY = "dmv_users"
-
 interface VerificationRequest {
   id: string
+  caseNumber?: string
   userId: string
   userName: string
   userEmail: string
@@ -29,316 +26,226 @@ interface VerificationRequest {
   status: "pending" | "approved" | "rejected"
   submittedAt: string
   aiConfidence: number
-  rejectionReason?: string
-  reviewedAt?: string
+  aiStatus?: string
+  aiExplanation?: string
+  isStaffReview: boolean
+  isException?: boolean
+  exceptionReason?: string
+  reviewedAt?: string | null
   reviewedBy?: string
-  isStaffReview?: boolean
+  notes?: string
+  ocrText?: string
+  extractedFields?: {
+    documentType?: string
+    tenantName?: string
+    landlordName?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
+    leaseStartDate?: string
+    leaseEndDate?: string
+  }
+  residentInfo?: {
+    fullName?: string
+    address?: string
+    city?: string
+    state?: string
+    zipCode?: string
+    phone?: string
+  }
 }
 
-interface SupportRequest {
-  id: string
-  type: string
-  documentType: string
-  fileName: string
-  requestedAt: string
-  status: string
-  userNote: string
-  userId?: string
-  userName?: string
-  userEmail?: string
+interface Counts {
+  pending: number
+  staffReview: number
+  lowConfidence: number
+  reviewed: number
+  aiApproved: number
 }
 
-const statusFilters = ["all", "pending", "approved", "rejected"]
+const statusFilters = ["all", "pending", "approved", "rejected"] as const
+type StatusFilter = typeof statusFilters[number]
 
-export default function VerificationsPage() {
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows
+    .map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+export default function AdminVerificationsPage() {
   const [verifications, setVerifications] = useState<VerificationRequest[]>([])
-  const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([])
+  const [counts, setCounts] = useState<Counts>({
+    pending: 0, staffReview: 0, lowConfidence: 0, reviewed: 0, aiApproved: 0,
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [selectedVerification, setSelectedVerification] = useState<VerificationRequest | null>(null)
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
 
-  // Load verification requests from localStorage
-  const loadVerifications = () => {
+  const [selectedDoc, setSelectedDoc] = useState<VerificationRequest | null>(null)
+  const [reviewNotes, setReviewNotes] = useState("")
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [actionError, setActionError] = useState("")
+
+  const loadVerifications = useCallback(async (silent = false) => {
     try {
-      // Load verification queue
-      const queueRaw = localStorage.getItem(VERIFICATION_QUEUE_KEY)
-      const queue: VerificationRequest[] = queueRaw ? JSON.parse(queueRaw) : []
-      
-      // Load support requests
-      const supportRaw = localStorage.getItem(SUPPORT_REQUESTS_KEY)
-      const support: SupportRequest[] = supportRaw ? JSON.parse(supportRaw) : []
-      
-      // Load the current document status to check for pending verifications
-      const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
-      if (docStatusRaw) {
-        const docStatus = JSON.parse(docStatusRaw)
-        const lease = docStatus.leaseDocument
-        
-        if (lease?.verifying || lease?.supportRequested) {
-          // Check if this verification already exists in queue
-          const existsInQueue = queue.some(v => v.fileName === lease.fileName && v.status === "pending")
-          
-          if (!existsInQueue) {
-            // Add to verification queue
-            const newVerification: VerificationRequest = {
-              id: `VER-${Date.now()}`,
-              userId: "current-user",
-              userName: "Current User",
-              userEmail: "user@email.com",
-              documentType: "Lease Document",
-              fileName: lease.fileName || "Unknown Document",
-              status: "pending",
-              submittedAt: lease.submittedAt || lease.uploadedAt || new Date().toISOString(),
-              aiConfidence: Math.random() * 0.4 + 0.5, // 50-90% confidence
-              isStaffReview: !!lease.supportRequested,
-            }
-            queue.push(newVerification)
-            localStorage.setItem(VERIFICATION_QUEUE_KEY, JSON.stringify(queue))
-          }
-        }
+      if (silent) setIsRefreshing(true)
+      else setIsLoading(true)
+
+      // Build filter param based on status
+      const params = new URLSearchParams()
+      if (statusFilter === "approved" || statusFilter === "rejected") {
+        params.set("filter", "reviewed")
       }
-      
-      setVerifications(queue)
-      setSupportRequests(support.filter(s => s.status === "pending"))
-    } catch {
-      setVerifications([])
-      setSupportRequests([])
+      if (searchQuery.trim()) params.set("q", searchQuery.trim())
+
+      const url = params.toString()
+        ? `/api/staff/verifications?${params.toString()}`
+        : "/api/staff/verifications"
+
+      const res = await fetch(url, { credentials: "include", cache: "no-store" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Failed to load verifications")
+
+      // Filter client-side for approved/rejected since API returns both under "reviewed"
+      const all: VerificationRequest[] = data.verifications || []
+      setVerifications(all)
+      setCounts(data.counts || { pending: 0, staffReview: 0, lowConfidence: 0, reviewed: 0, aiApproved: 0 })
+    } catch (error) {
+      console.error("Failed to load verifications:", error)
+    } finally {
+      if (silent) setIsRefreshing(false)
+      else setIsLoading(false)
+    }
+  }, [statusFilter, searchQuery])
+
+  useEffect(() => {
+    loadVerifications(false)
+    const interval = setInterval(() => loadVerifications(true), 10000)
+    return () => clearInterval(interval)
+  }, [loadVerifications])
+
+  const handleDecision = async (decision: "APPROVED" | "REJECTED") => {
+    if (!selectedDoc) return
+    setIsProcessing(true)
+    setActionError("")
+
+    try {
+      const res = await fetch("/api/staff/verifications/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          verificationId: selectedDoc.id,
+          decision,
+          notes: reviewNotes,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || `Failed to ${decision.toLowerCase()} verification`)
+      setSelectedDoc(null)
+      setReviewNotes("")
+      await loadVerifications(true)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Action failed")
+    } finally {
+      setIsProcessing(false)
     }
   }
 
-  useEffect(() => {
-    loadVerifications()
-    // Poll for new verifications
-    const interval = setInterval(loadVerifications, 2000)
-    return () => clearInterval(interval)
-  }, [])
-
   const filteredVerifications = verifications.filter((v) => {
-    const matchesSearch = 
-      v.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.userEmail.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.fileName.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesStatus = statusFilter === "all" || v.status === statusFilter
-    return matchesSearch && matchesStatus
+    const matchesStatus =
+      statusFilter === "all" ? true :
+      statusFilter === "pending" ? v.status === "pending" :
+      statusFilter === "approved" ? v.status === "approved" :
+      statusFilter === "rejected" ? v.status === "rejected" :
+      true
+
+    const q = searchQuery.toLowerCase()
+    const matchesSearch =
+      !searchQuery.trim() ||
+      v.userName.toLowerCase().includes(q) ||
+      v.userEmail.toLowerCase().includes(q) ||
+      v.fileName.toLowerCase().includes(q) ||
+      (v.caseNumber || "").toLowerCase().includes(q) ||
+      v.documentType.toLowerCase().includes(q)
+
+    return matchesStatus && matchesSearch
   })
 
-  const pendingCount = verifications.filter(v => v.status === "pending").length
-  const approvedCount = verifications.filter(v => v.status === "approved").length
-  const rejectedCount = verifications.filter(v => v.status === "rejected").length
-
-  // Approve verification
-  const handleApprove = (verification: VerificationRequest) => {
-    setIsProcessing(true)
-    
-    setTimeout(() => {
-      // Update verification queue
-      const updatedQueue = verifications.map(v => {
-        if (v.id === verification.id) {
-          return {
-            ...v,
-            status: "approved" as const,
-            reviewedAt: new Date().toISOString(),
-            reviewedBy: "Admin",
-          }
-        }
-        return v
-      })
-      localStorage.setItem(VERIFICATION_QUEUE_KEY, JSON.stringify(updatedQueue))
-      setVerifications(updatedQueue)
-      
-      // Update the resident's document status
-      try {
-        const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
-        if (docStatusRaw) {
-          const docStatus = JSON.parse(docStatusRaw)
-          if (docStatus.leaseDocument?.fileName === verification.fileName) {
-            docStatus.leaseDocument = {
-              ...docStatus.leaseDocument,
-              verified: true,
-              verifying: false,
-              rejected: false,
-              supportRequested: false,
-              verifiedAt: new Date().toISOString(),
-              verifiedBy: "Admin",
-            }
-            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(docStatus))
-          }
-        }
-        
-        // Remove from support requests if applicable
-        const supportRaw = localStorage.getItem(SUPPORT_REQUESTS_KEY)
-        if (supportRaw) {
-          const support = JSON.parse(supportRaw)
-          const updatedSupport = support.filter((s: SupportRequest) => s.fileName !== verification.fileName)
-          localStorage.setItem(SUPPORT_REQUESTS_KEY, JSON.stringify(updatedSupport))
-        }
-      } catch {
-        // ignore
-      }
-      
-      setIsProcessing(false)
-      setIsPreviewOpen(false)
-      setSelectedVerification(null)
-    }, 500)
+  const handleExport = () => {
+    const headers = ["Case Number", "Resident", "Email", "Document Type", "File", "Status", "AI Status", "AI Confidence", "Staff Review", "Submitted At", "Reviewed At"]
+    const rows = filteredVerifications.map((v) => [
+      v.caseNumber || "", v.userName, v.userEmail, v.documentType, v.fileName,
+      v.status, v.aiStatus || "", `${Math.round(v.aiConfidence * 100)}%`,
+      v.isStaffReview ? "Yes" : "No",
+      new Date(v.submittedAt).toLocaleString(),
+      v.reviewedAt ? new Date(v.reviewedAt).toLocaleString() : "",
+    ])
+    downloadCsv("verifications-admin.csv", [headers, ...rows])
   }
 
-  // Reject verification
-  const handleReject = (verification: VerificationRequest) => {
-    setIsProcessing(true)
-    
-    setTimeout(() => {
-      // Update verification queue
-      const updatedQueue = verifications.map(v => {
-        if (v.id === verification.id) {
-          return {
-            ...v,
-            status: "rejected" as const,
-            reviewedAt: new Date().toISOString(),
-            reviewedBy: "Admin",
-            rejectionReason: "Document could not be verified. Please upload a clearer document.",
-          }
-        }
-        return v
-      })
-      localStorage.setItem(VERIFICATION_QUEUE_KEY, JSON.stringify(updatedQueue))
-      setVerifications(updatedQueue)
-      
-      // Update the resident's document status
-      try {
-        const docStatusRaw = localStorage.getItem(DOC_STATUS_KEY)
-        if (docStatusRaw) {
-          const docStatus = JSON.parse(docStatusRaw)
-          if (docStatus.leaseDocument?.fileName === verification.fileName) {
-            docStatus.leaseDocument = {
-              ...docStatus.leaseDocument,
-              verified: false,
-              verifying: false,
-              rejected: true,
-              supportRequested: false,
-              rejectedAt: new Date().toISOString(),
-              rejectedBy: "Admin",
-              rejectionReason: "Document could not be verified. Please upload a clearer document.",
-            }
-            localStorage.setItem(DOC_STATUS_KEY, JSON.stringify(docStatus))
-          }
-        }
-        
-        // Remove from support requests if applicable
-        const supportRaw = localStorage.getItem(SUPPORT_REQUESTS_KEY)
-        if (supportRaw) {
-          const support = JSON.parse(supportRaw)
-          const updatedSupport = support.filter((s: SupportRequest) => s.fileName !== verification.fileName)
-          localStorage.setItem(SUPPORT_REQUESTS_KEY, JSON.stringify(updatedSupport))
-        }
-      } catch {
-        // ignore
-      }
-      
-      setIsProcessing(false)
-      setIsPreviewOpen(false)
-      setSelectedVerification(null)
-    }, 500)
-  }
-
-  const openPreview = (verification: VerificationRequest) => {
-    setSelectedVerification(verification)
-    setIsPreviewOpen(true)
-  }
+  const totalCount = counts.pending + counts.reviewed + counts.aiApproved
+  const approvedCount = counts.reviewed // approximate — server gives combined reviewed
+  const isReviewedCase = selectedDoc?.status === "approved" || selectedDoc?.status === "rejected"
+  const isAiApproved = selectedDoc?.aiStatus === "APPROVED_BY_AI"
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold text-foreground">Verification Management</h1>
         <p className="text-sm text-muted-foreground">
-          Review and manage document verification requests from residents
+          Review and manage all document verification requests
         </p>
+        {isRefreshing && <p className="text-xs text-muted-foreground">Refreshing…</p>}
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{verifications.length}</p>
-              <p className="text-sm text-muted-foreground">Total Requests</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-amber-100">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{pendingCount}</p>
-              <p className="text-sm text-muted-foreground">Pending Review</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{approvedCount}</p>
-              <p className="text-sm text-muted-foreground">Approved</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-red-100">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-600"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{rejectedCount}</p>
-              <p className="text-sm text-muted-foreground">Rejected</p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          { label: "Pending Review", value: counts.pending, color: "text-amber-600", bg: "bg-amber-100" },
+          { label: "Staff Review", value: counts.staffReview, color: "text-red-600", bg: "bg-red-100" },
+          { label: "Low Confidence", value: counts.lowConfidence, color: "text-orange-600", bg: "bg-orange-100" },
+          { label: "AI Approved", value: counts.aiApproved, color: "text-green-600", bg: "bg-green-100" },
+          { label: "Reviewed", value: counts.reviewed, color: "text-foreground", bg: "bg-muted" },
+        ].map((stat) => (
+          <Card key={stat.label}>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${stat.bg}`}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={stat.color}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <div>
+                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                <p className="text-xs text-muted-foreground">{stat.label}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
-
-      {/* Staff Review Alert */}
-      {supportRequests.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-amber-800">Staff Review Requested</p>
-              <p className="text-xs text-amber-700">{supportRequests.length} document(s) require manual staff review</p>
-            </div>
-            <Badge variant="secondary" className="bg-amber-200 text-amber-800">
-              {supportRequests.length} Pending
-            </Badge>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Filters */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              {statusFilters.map((status) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {statusFilters.map((s) => (
                 <Badge
-                  key={status}
-                  variant={statusFilter === status ? "default" : "outline"}
-                  className={`cursor-pointer capitalize ${
-                    statusFilter === status ? "bg-primary text-primary-foreground" : ""
-                  }`}
-                  onClick={() => setStatusFilter(status)}
+                  key={s}
+                  variant={statusFilter === s ? "default" : "outline"}
+                  className="cursor-pointer capitalize"
+                  onClick={() => setStatusFilter(s)}
                 >
-                  {status}
+                  {s}
                 </Badge>
               ))}
             </div>
@@ -346,110 +253,123 @@ export default function VerificationsPage() {
               <div className="relative">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <Input
-                  placeholder="Search by name, email, or ID..."
+                  placeholder="Search by name, email, case..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 w-64"
+                  className="w-64 pl-9"
                 />
               </div>
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={filteredVerifications.length === 0}>
+                Export CSV
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Verifications List */}
+      {/* List */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Verification Requests</CardTitle>
           <CardDescription>
-            {filteredVerifications.length} verification{filteredVerifications.length !== 1 ? "s" : ""} found
+            {isLoading ? "Loading..." : `${filteredVerifications.length} verification${filteredVerifications.length !== 1 ? "s" : ""} found`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {filteredVerifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/50"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              <p className="mt-4 text-sm text-muted-foreground">Loading verifications...</p>
+            </div>
+          ) : filteredVerifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground/30"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <p className="mt-4 text-sm text-muted-foreground">No verification requests found</p>
-              <p className="text-xs text-muted-foreground">Requests will appear here when residents submit documents for verification</p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {filteredVerifications.map((verification) => (
+              {filteredVerifications.map((v) => (
                 <div
-                  key={verification.id}
+                  key={v.id}
                   className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between ${
-                    verification.isStaffReview ? "border-amber-200 bg-amber-50/50" : "border-border"
+                    v.aiStatus === "APPROVED_BY_AI" ? "border-green-200 bg-green-50" :
+                    v.isStaffReview ? "border-red-200 bg-red-50" :
+                    v.isException ? "border-orange-200 bg-orange-50" :
+                    "border-border"
                   }`}
                 >
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{verification.fileName}</span>
-                      <Badge
-                        variant="secondary"
-                        className={
-                          verification.status === "approved"
-                            ? "bg-green-100 text-green-700"
-                            : verification.status === "rejected"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-amber-100 text-amber-700"
-                        }
-                      >
-                        {verification.status}
-                      </Badge>
-                      {verification.isStaffReview && (
-                        <Badge variant="outline" className="border-amber-300 text-amber-700">
-                          Staff Review
-                        </Badge>
-                      )}
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                      v.aiStatus === "APPROVED_BY_AI" ? "bg-green-100" :
+                      v.status === "approved" ? "bg-green-100" :
+                      v.status === "rejected" ? "bg-red-100" :
+                      v.isStaffReview ? "bg-red-100" :
+                      "bg-amber-100"
+                    }`}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={
+                        v.aiStatus === "APPROVED_BY_AI" ? "text-green-600" :
+                        v.status === "approved" ? "text-green-600" :
+                        v.status === "rejected" ? "text-red-600" :
+                        v.isStaffReview ? "text-red-600" : "text-amber-600"
+                      }><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </div>
-                    <p className="text-xs text-muted-foreground">{verification.userEmail}</p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>{verification.id}</span>
-                      <span>{verification.documentType}</span>
-                      <span>{new Date(verification.submittedAt).toLocaleString()}</span>
+                    <div>
+                      <p className="text-xs font-semibold text-primary">{v.caseNumber || "No Case ID"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium">{v.documentType}</p>
+                        <Badge className={
+                          v.status === "approved" ? "bg-green-100 text-green-700 text-[10px] hover:bg-green-100" :
+                          v.status === "rejected" ? "bg-red-100 text-red-700 text-[10px] hover:bg-red-100" :
+                          "bg-amber-100 text-amber-700 text-[10px] hover:bg-amber-100"
+                        }>
+                          {v.status}
+                        </Badge>
+                        {v.aiStatus === "APPROVED_BY_AI" && (
+                          <Badge className="bg-green-100 text-green-700 text-[10px] hover:bg-green-100">AI Approved</Badge>
+                        )}
+                        {v.isStaffReview && v.status === "pending" && (
+                          <Badge variant="destructive" className="text-[10px]">Staff Review</Badge>
+                        )}
+                        {v.isException && (
+                          <Badge className="bg-orange-100 text-orange-700 text-[10px] hover:bg-orange-100">Exception</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{v.userName} • {v.userEmail}</p>
+                      <p className="text-xs text-muted-foreground">{v.fileName} • {new Date(v.submittedAt).toLocaleString()}</p>
                     </div>
                   </div>
+
                   <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-xs text-muted-foreground">AI Confidence</span>
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-20 overflow-hidden rounded-full bg-muted">
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">AI Confidence</p>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                           <div
                             className={`h-full rounded-full ${
-                              verification.aiConfidence >= 0.8
-                                ? "bg-green-500"
-                                : verification.aiConfidence >= 0.6
-                                  ? "bg-amber-500"
-                                  : "bg-red-500"
+                              v.aiConfidence >= 0.8 ? "bg-green-500" :
+                              v.aiConfidence >= 0.6 ? "bg-amber-500" : "bg-red-500"
                             }`}
-                            style={{ width: `${verification.aiConfidence * 100}%` }}
+                            style={{ width: `${v.aiConfidence * 100}%` }}
                           />
                         </div>
-                        <span className="text-xs font-medium">{Math.round(verification.aiConfidence * 100)}%</span>
+                        <span className={`text-xs font-semibold ${
+                          v.aiConfidence >= 0.8 ? "text-green-600" :
+                          v.aiConfidence >= 0.6 ? "text-amber-600" : "text-red-600"
+                        }`}>
+                          {Math.round(v.aiConfidence * 100)}%
+                        </span>
                       </div>
                     </div>
-                    {verification.status === "pending" && (
-                      <div className="flex gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="text-green-600 hover:bg-green-50 hover:text-green-700"
-                          onClick={() => handleApprove(verification)}
-                        >
-                          Approve
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                          onClick={() => handleReject(verification)}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-                    <Button size="sm" variant="ghost" onClick={() => openPreview(verification)}>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <Button
+                      size="sm"
+                      variant={v.status !== "pending" ? "outline" : "default"}
+                      onClick={() => {
+                        setSelectedDoc(v)
+                        setReviewNotes(v.notes || "")
+                        setActionError("")
+                      }}
+                    >
+                      {v.status !== "pending" ? "View" : "Review"}
                     </Button>
                   </div>
                 </div>
@@ -459,101 +379,170 @@ export default function VerificationsPage() {
         </CardContent>
       </Card>
 
-      {/* Document Preview Modal */}
-      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent className="sm:max-w-lg">
+      {/* Review Dialog */}
+      <Dialog open={!!selectedDoc} onOpenChange={(open) => {
+        if (!open) { setSelectedDoc(null); setReviewNotes(""); setActionError("") }
+      }}>
+        <DialogContent className="sm:max-w-2xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
-            <DialogTitle>Document Preview</DialogTitle>
+            <DialogTitle>
+              {isAiApproved ? "AI Approved Case" : isReviewedCase ? "Reviewed Case" : "Review Document"}
+            </DialogTitle>
             <DialogDescription>
-              Review the submitted document and verification details
+              {isAiApproved
+                ? "Auto-approved by AI. You can override by rejecting or flagging."
+                : isReviewedCase
+                  ? "This case has already been reviewed."
+                  : "Review the document and make an approval decision."}
             </DialogDescription>
           </DialogHeader>
-          {selectedVerification && (
-            <div className="flex flex-col gap-4 py-4">
-              {/* Document Info */}
-              <div className="rounded-lg border border-border p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+
+          {selectedDoc && (
+            <div className="flex flex-col gap-4 py-2">
+              {/* AI approved banner */}
+              {isAiApproved && (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                  <div className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/></svg>
+                    <p className="text-sm font-semibold text-green-800">Auto-Approved by AI — {Math.round(selectedDoc.aiConfidence * 100)}% confidence</p>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{selectedVerification.fileName}</p>
-                    <p className="text-xs text-muted-foreground">{selectedVerification.documentType}</p>
-                  </div>
-                  <Badge
-                    variant="secondary"
-                    className={
-                      selectedVerification.status === "approved"
-                        ? "bg-green-100 text-green-700"
-                        : selectedVerification.status === "rejected"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-amber-100 text-amber-700"
-                    }
-                  >
-                    {selectedVerification.status}
-                  </Badge>
                 </div>
-              </div>
-              
-              {/* Document Preview Placeholder */}
-              <div className="flex h-48 items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/30">
-                <div className="text-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-muted-foreground/50"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  <p className="mt-2 text-sm text-muted-foreground">Document Preview</p>
-                  <p className="text-xs text-muted-foreground">(Actual file content would appear here)</p>
+              )}
+
+              {/* Case info */}
+              <div className="grid grid-cols-2 gap-3 rounded-lg border border-border p-4 text-sm">
+                <div><p className="text-xs text-muted-foreground">Case ID</p><p className="font-medium">{selectedDoc.caseNumber || "—"}</p></div>
+                <div><p className="text-xs text-muted-foreground">Resident</p><p className="font-medium">{selectedDoc.userName}</p></div>
+                <div><p className="text-xs text-muted-foreground">Email</p><p className="font-medium break-all">{selectedDoc.userEmail}</p></div>
+                <div><p className="text-xs text-muted-foreground">Document</p><p className="font-medium">{selectedDoc.fileName}</p></div>
+                <div><p className="text-xs text-muted-foreground">Status</p>
+                  <Badge className={
+                    selectedDoc.status === "approved" ? "bg-green-100 text-green-700 hover:bg-green-100" :
+                    selectedDoc.status === "rejected" ? "bg-red-100 text-red-700 hover:bg-red-100" :
+                    "bg-amber-100 text-amber-700 hover:bg-amber-100"
+                  }>{selectedDoc.status}</Badge>
                 </div>
+                <div><p className="text-xs text-muted-foreground">AI Confidence</p>
+                  <Badge className={
+                    selectedDoc.aiConfidence >= 0.8 ? "bg-green-100 text-green-700" :
+                    selectedDoc.aiConfidence >= 0.6 ? "bg-amber-100 text-amber-700" :
+                    "bg-red-100 text-red-700"
+                  }>{Math.round(selectedDoc.aiConfidence * 100)}%</Badge>
+                </div>
+                <div><p className="text-xs text-muted-foreground">Submitted</p><p className="font-medium">{new Date(selectedDoc.submittedAt).toLocaleString()}</p></div>
+                {selectedDoc.reviewedAt && (
+                  <div><p className="text-xs text-muted-foreground">Reviewed</p><p className="font-medium">{new Date(selectedDoc.reviewedAt).toLocaleString()}</p></div>
+                )}
               </div>
 
-              {/* Verification Details */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Request ID</p>
-                  <p className="font-medium">{selectedVerification.id}</p>
+              {/* AI explanation */}
+              {selectedDoc.aiExplanation && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                  <p className="text-xs font-semibold text-blue-800">AI Explanation</p>
+                  <p className="mt-1 text-xs text-blue-700">{selectedDoc.aiExplanation}</p>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Submitted</p>
-                  <p className="font-medium">{new Date(selectedVerification.submittedAt).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">User</p>
-                  <p className="font-medium">{selectedVerification.userName}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">AI Confidence</p>
-                  <p className="font-medium">{Math.round(selectedVerification.aiConfidence * 100)}%</p>
-                </div>
-              </div>
+              )}
 
-              {selectedVerification.isStaffReview && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <p className="text-xs font-semibold text-amber-800">Staff Review Requested</p>
-                  <p className="text-xs text-amber-700">This document requires manual staff verification as it could not be automatically verified.</p>
+              {/* Extracted fields */}
+              {selectedDoc.extractedFields && (
+                <div className="rounded-lg border border-border p-4">
+                  <p className="mb-2 text-xs font-semibold text-foreground">Extracted Document Fields</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      ["Tenant Name", selectedDoc.extractedFields.tenantName],
+                      ["Address", selectedDoc.extractedFields.address],
+                      ["City", selectedDoc.extractedFields.city],
+                      ["State", selectedDoc.extractedFields.state],
+                      ["ZIP", selectedDoc.extractedFields.zipCode],
+                      ["Lease Start", selectedDoc.extractedFields.leaseStartDate],
+                      ["Lease End", selectedDoc.extractedFields.leaseEndDate],
+                    ].map(([label, value]) =>
+                      value ? (
+                        <div key={label}>
+                          <p className="text-muted-foreground">{label}</p>
+                          <p className="font-medium">{value}</p>
+                        </div>
+                      ) : null
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Resident info */}
+              {selectedDoc.residentInfo && (
+                <div className="rounded-lg border border-border p-4">
+                  <p className="mb-2 text-xs font-semibold text-foreground">Resident Submitted Info</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><p className="text-muted-foreground">Full Name</p><p className="font-medium">{selectedDoc.residentInfo.fullName || "—"}</p></div>
+                    <div><p className="text-muted-foreground">Phone</p><p className="font-medium">{selectedDoc.residentInfo.phone || "—"}</p></div>
+                    <div className="col-span-2">
+                      <p className="text-muted-foreground">Address</p>
+                      <p className="font-medium">
+                        {selectedDoc.residentInfo.address || "—"}
+                        {selectedDoc.residentInfo.city ? `, ${selectedDoc.residentInfo.city}` : ""}
+                        {selectedDoc.residentInfo.state ? `, ${selectedDoc.residentInfo.state}` : ""}
+                        {selectedDoc.residentInfo.zipCode ? ` ${selectedDoc.residentInfo.zipCode}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Existing notes */}
+              {selectedDoc.notes && (
+                <div className="rounded-md border border-border bg-muted/30 p-3">
+                  <p className="text-xs font-semibold text-foreground">Review Notes</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedDoc.notes}</p>
+                </div>
+              )}
+
+              {/* Notes input for pending */}
+              {!isReviewedCase && (
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-foreground">Add Notes</p>
+                  <Textarea
+                    value={reviewNotes}
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                    placeholder="Optional notes about this decision..."
+                    className="min-h-[80px]"
+                  />
+                </div>
+              )}
+
+              {actionError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {actionError}
                 </div>
               )}
             </div>
           )}
-          <DialogFooter>
-            {selectedVerification?.status === "pending" && (
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setSelectedDoc(null); setReviewNotes(""); setActionError("") }} disabled={isProcessing}>
+              Close
+            </Button>
+            {selectedDoc && !isReviewedCase && (
               <>
-                <Button 
-                  variant="outline" 
-                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => selectedVerification && handleReject(selectedVerification)}
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDecision("REJECTED")}
                   disabled={isProcessing}
+                  className="gap-2"
                 >
-                  {isProcessing ? "Processing..." : "Reject"}
+                  {isProcessing ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : null}
+                  Reject
                 </Button>
-                <Button 
-                  className="bg-green-600 hover:bg-green-700"
-                  onClick={() => selectedVerification && handleApprove(selectedVerification)}
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? "Processing..." : "Approve Document"}
-                </Button>
+                {!isAiApproved && (
+                  <Button
+                    onClick={() => handleDecision("APPROVED")}
+                    disabled={isProcessing}
+                    className="gap-2 bg-green-600 hover:bg-green-700"
+                  >
+                    {isProcessing ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : null}
+                    Approve
+                  </Button>
+                )}
               </>
-            )}
-            {selectedVerification?.status !== "pending" && (
-              <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Close</Button>
             )}
           </DialogFooter>
         </DialogContent>

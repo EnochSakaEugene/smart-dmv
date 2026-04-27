@@ -1,52 +1,87 @@
 "use client"
 
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
-// Mock analytics data
-const weeklyData = [
-  { day: "Mon", verifications: 234, approvals: 221, rejections: 13 },
-  { day: "Tue", verifications: 287, approvals: 270, rejections: 17 },
-  { day: "Wed", verifications: 312, approvals: 294, rejections: 18 },
-  { day: "Thu", verifications: 289, approvals: 273, rejections: 16 },
-  { day: "Fri", verifications: 345, approvals: 325, rejections: 20 },
-  { day: "Sat", verifications: 156, approvals: 148, rejections: 8 },
-  { day: "Sun", verifications: 98, approvals: 94, rejections: 4 },
-]
+type Range = "7d" | "30d" | "90d"
 
-const documentTypeStats = [
-  { type: "Lease Documents", count: 8234, percentage: 52 },
-  { type: "Utility Bills", count: 4123, percentage: 26 },
-  { type: "Bank Statements", count: 2456, percentage: 16 },
-  { type: "Other", count: 987, percentage: 6 },
-]
+interface DailyPoint {
+  label: string
+  approved: number
+  rejected: number
+  pending: number
+}
 
-const processingTimes = [
-  { range: "< 1s", count: 4523, percentage: 29 },
-  { range: "1-2s", count: 6234, percentage: 40 },
-  { range: "2-3s", count: 3456, percentage: 22 },
-  { range: "3-5s", count: 1234, percentage: 8 },
-  { range: "> 5s", count: 156, percentage: 1 },
-]
+interface DocumentType {
+  type: string
+  count: number
+  percentage: number
+}
 
-const hourlyTraffic = [
-  { hour: "6 AM", count: 45 },
-  { hour: "8 AM", count: 234 },
-  { hour: "10 AM", count: 456 },
-  { hour: "12 PM", count: 523 },
-  { hour: "2 PM", count: 487 },
-  { hour: "4 PM", count: 398 },
-  { hour: "6 PM", count: 234 },
-  { hour: "8 PM", count: 123 },
-]
+interface HourlyPoint {
+  hour: string
+  count: number
+}
+
+interface Insight {
+  type: "success" | "warning" | "info"
+  title: string
+  description: string
+}
+
+interface AnalyticsData {
+  summary: {
+    total: number
+    approved: number
+    rejected: number
+    approvalRate: number
+    aiApproved: number
+    staffApproved: number
+    staffRejected: number
+    timedOut: number
+  }
+  dailyTrend: DailyPoint[]
+  documentTypes: DocumentType[]
+  hourlyTraffic: HourlyPoint[]
+  insights: Insight[]
+}
 
 export default function AnalyticsPage() {
-  const maxVerifications = Math.max(...weeklyData.map(d => d.verifications))
-  const maxTraffic = Math.max(...hourlyTraffic.map(d => d.count))
+  const [data, setData] = useState<AnalyticsData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [range, setRange] = useState<Range>("7d")
+
+  const loadAnalytics = useCallback(async (r: Range) => {
+    try {
+      setIsLoading(true)
+      const res = await fetch(`/api/admin/analytics?range=${r}`, {
+        credentials: "include",
+        cache: "no-store",
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || "Failed to load analytics")
+      setData(json)
+    } catch (error) {
+      console.error("Failed to load analytics:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadAnalytics(range)
+  }, [range, loadAnalytics])
+
+  const maxDaily = data
+    ? Math.max(...data.dailyTrend.map((d) => d.approved + d.rejected + d.pending), 1)
+    : 1
+  const maxHourly = data
+    ? Math.max(...data.hourlyTraffic.map((h) => h.count), 1)
+    : 1
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
         <p className="text-sm text-muted-foreground">
@@ -54,167 +89,274 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      {/* Time Period Selector */}
+      {/* Period selector */}
       <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="cursor-pointer bg-primary text-primary-foreground">Last 7 Days</Badge>
-        <Badge variant="outline" className="cursor-pointer">Last 30 Days</Badge>
-        <Badge variant="outline" className="cursor-pointer">Last 90 Days</Badge>
-        <Badge variant="outline" className="cursor-pointer">Custom Range</Badge>
+        {(["7d", "30d", "90d"] as Range[]).map((r) => (
+          <Badge
+            key={r}
+            variant={range === r ? "default" : "outline"}
+            className={`cursor-pointer ${range === r ? "bg-primary text-primary-foreground" : ""}`}
+            onClick={() => setRange(r)}
+          >
+            {r === "7d" ? "Last 7 Days" : r === "30d" ? "Last 30 Days" : "Last 90 Days"}
+          </Badge>
+        ))}
       </div>
 
-      {/* Weekly Verification Trend */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Weekly Verification Trend</CardTitle>
-          <CardDescription>Daily breakdown of verification activity</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-4">
-            {/* Simple bar chart */}
-            <div className="flex items-end justify-between gap-2 h-48">
-              {weeklyData.map((day) => (
-                <div key={day.day} className="flex flex-1 flex-col items-center gap-2">
-                  <div className="relative flex w-full flex-col items-center gap-1">
-                    <div
-                      className="w-full max-w-12 rounded-t bg-green-500"
-                      style={{ height: `${(day.approvals / maxVerifications) * 160}px` }}
-                    />
-                    <div
-                      className="w-full max-w-12 rounded-b bg-red-400"
-                      style={{ height: `${(day.rejections / maxVerifications) * 160}px` }}
-                    />
-                  </div>
-                  <span className="text-xs font-medium text-muted-foreground">{day.day}</span>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded bg-green-500" />
-                <span className="text-xs text-muted-foreground">Approved</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded bg-red-400" />
-                <span className="text-xs text-muted-foreground">Rejected</span>
-              </div>
-            </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="text-sm text-muted-foreground">Loading analytics...</p>
           </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Document Type Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Document Type Distribution</CardTitle>
-            <CardDescription>Breakdown by document category</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-4">
-              {documentTypeStats.map((doc) => (
-                <div key={doc.type} className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{doc.type}</span>
-                    <span className="text-sm text-muted-foreground">{doc.count.toLocaleString()} ({doc.percentage}%)</span>
+        </div>
+      ) : !data ? (
+        <div className="flex items-center justify-center py-20">
+          <p className="text-sm text-muted-foreground">Failed to load analytics data.</p>
+        </div>
+      ) : (
+        <>
+          {/* Summary cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: "Total Submitted", value: data.summary.total, color: "text-foreground", bg: "bg-primary/10" },
+              { label: "Approved", value: data.summary.approved, color: "text-green-600", bg: "bg-green-100" },
+              { label: "Rejected", value: data.summary.rejected, color: "text-red-600", bg: "bg-red-100" },
+              { label: "Approval Rate", value: `${data.summary.approvalRate}%`, color: "text-foreground", bg: "bg-primary/10" },
+            ].map((s) => (
+              <Card key={s.label}>
+                <CardContent className="flex items-center justify-between p-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
                   </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{ width: `${doc.percentage}%` }}
-                    />
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${s.bg}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                   </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Processing Time Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Processing Time Distribution</CardTitle>
-            <CardDescription>Time taken for AI verification</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-4">
-              {processingTimes.map((time) => (
-                <div key={time.range} className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{time.range}</span>
-                    <span className="text-sm text-muted-foreground">{time.count.toLocaleString()} ({time.percentage}%)</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        time.range === "< 1s" || time.range === "1-2s" 
-                          ? "bg-green-500" 
-                          : time.range === "2-3s" 
-                            ? "bg-amber-500" 
-                            : "bg-red-500"
-                      }`}
-                      style={{ width: `${time.percentage}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Hourly Traffic Pattern */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Hourly Traffic Pattern</CardTitle>
-          <CardDescription>Verification requests by time of day</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-end justify-between gap-2 h-40">
-            {hourlyTraffic.map((hour) => (
-              <div key={hour.hour} className="flex flex-1 flex-col items-center gap-2">
-                <div
-                  className="w-full max-w-16 rounded-t bg-primary/80"
-                  style={{ height: `${(hour.count / maxTraffic) * 120}px` }}
-                />
-                <span className="text-xs font-medium text-muted-foreground">{hour.hour}</span>
-              </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Key Insights */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Key Insights</CardTitle>
-          <CardDescription>AI-generated analysis of current trends</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-green-600"><path d="m5 12 5 5L20 7"/></svg>
-              <div>
-                <p className="text-sm font-medium text-green-800">High Approval Rate</p>
-                <p className="text-xs text-green-700">94.2% approval rate exceeds target of 90%</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-600"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-              <div>
-                <p className="text-sm font-medium text-amber-800">Peak Hours Identified</p>
-                <p className="text-xs text-amber-700">12 PM - 2 PM shows 40% higher traffic</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-blue-600"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-              <div>
-                <p className="text-sm font-medium text-blue-800">Lease Documents Lead</p>
-                <p className="text-xs text-blue-700">52% of all verifications are lease documents</p>
-              </div>
-            </div>
+          {/* AI breakdown */}
+          <div className="grid gap-4 sm:grid-cols-4">
+            {[
+              { label: "AI Auto-Approved", value: data.summary.aiApproved, color: "text-green-600" },
+              { label: "Staff Approved", value: data.summary.staffApproved, color: "text-blue-600" },
+              { label: "Staff Rejected", value: data.summary.staffRejected, color: "text-red-600" },
+              { label: "AI Timed Out", value: data.summary.timedOut, color: "text-amber-600" },
+            ].map((s) => (
+              <Card key={s.label}>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Daily trend bar chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Verification Trend</CardTitle>
+              <CardDescription>
+                Daily breakdown of verification activity over the selected period
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data.dailyTrend.every((d) => d.approved + d.rejected + d.pending === 0) ? (
+                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                  No verifications submitted in this period
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-end justify-between gap-1 h-48">
+                    {data.dailyTrend.map((day) => {
+                      const total = day.approved + day.rejected + day.pending
+                      const approvedH = (day.approved / maxDaily) * 160
+                      const rejectedH = (day.rejected / maxDaily) * 160
+                      const pendingH = (day.pending / maxDaily) * 160
+                      return (
+                        <div key={day.label} className="group flex flex-1 flex-col items-center gap-2">
+                          <div className="relative flex w-full flex-col items-center">
+                            {/* Tooltip */}
+                            <div className="absolute -top-8 hidden group-hover:flex rounded bg-foreground px-2 py-1 text-[10px] text-background whitespace-nowrap z-10">
+                              {total} total
+                            </div>
+                            <div className="flex w-full max-w-10 flex-col overflow-hidden rounded-sm">
+                              {day.approved > 0 && (
+                                <div className="w-full bg-green-500" style={{ height: `${approvedH}px` }} />
+                              )}
+                              {day.pending > 0 && (
+                                <div className="w-full bg-amber-400" style={{ height: `${pendingH}px` }} />
+                              )}
+                              {day.rejected > 0 && (
+                                <div className="w-full bg-red-400" style={{ height: `${rejectedH}px` }} />
+                              )}
+                              {total === 0 && (
+                                <div className="w-full bg-muted" style={{ height: "4px" }} />
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-medium text-muted-foreground">{day.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded bg-green-500" />
+                      <span className="text-xs text-muted-foreground">Approved</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded bg-amber-400" />
+                      <span className="text-xs text-muted-foreground">Pending</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded bg-red-400" />
+                      <span className="text-xs text-muted-foreground">Rejected</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* Document type distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Document Type Distribution</CardTitle>
+                <CardDescription>Breakdown by document category</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {data.documentTypes.length === 0 ? (
+                  <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                    No data in this period
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {data.documentTypes.map((doc) => (
+                      <div key={doc.type} className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{doc.type}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {doc.count.toLocaleString()} ({doc.percentage}%)
+                          </span>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all"
+                            style={{ width: `${doc.percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Hourly traffic */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Hourly Traffic Pattern</CardTitle>
+                <CardDescription>Verification submissions by time of day</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {data.hourlyTraffic.every((h) => h.count === 0) ? (
+                  <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                    No traffic data in this period
+                  </div>
+                ) : (
+                  <div className="flex items-end justify-between gap-1 h-40">
+                    {data.hourlyTraffic.map((h) => (
+                      <div key={h.hour} className="group flex flex-1 flex-col items-center gap-2">
+                        <div className="relative flex w-full flex-col items-center">
+                          <div className="absolute -top-6 hidden group-hover:flex rounded bg-foreground px-1.5 py-0.5 text-[10px] text-background whitespace-nowrap z-10">
+                            {h.count}
+                          </div>
+                          <div
+                            className="w-full max-w-10 rounded-t bg-primary/80"
+                            style={{ height: `${(h.count / maxHourly) * 120}px`, minHeight: h.count > 0 ? "3px" : "0" }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-medium text-muted-foreground">{h.hour}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Key Insights */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Key Insights</CardTitle>
+              <CardDescription>Computed from real verification data in this period</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data.insights.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No insights available for this period.</p>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {data.insights.map((insight, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-start gap-3 rounded-lg border p-4 ${
+                        insight.type === "success"
+                          ? "border-green-200 bg-green-50"
+                          : insight.type === "warning"
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-blue-200 bg-blue-50"
+                      }`}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`mt-0.5 shrink-0 ${
+                          insight.type === "success" ? "text-green-600" :
+                          insight.type === "warning" ? "text-amber-600" : "text-blue-600"
+                        }`}
+                      >
+                        {insight.type === "success" ? (
+                          <><path d="m5 12 5 5L20 7"/></>
+                        ) : insight.type === "warning" ? (
+                          <><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></>
+                        ) : (
+                          <><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></>
+                        )}
+                      </svg>
+                      <div>
+                        <p className={`text-sm font-medium ${
+                          insight.type === "success" ? "text-green-800" :
+                          insight.type === "warning" ? "text-amber-800" : "text-blue-800"
+                        }`}>
+                          {insight.title}
+                        </p>
+                        <p className={`text-xs ${
+                          insight.type === "success" ? "text-green-700" :
+                          insight.type === "warning" ? "text-amber-700" : "text-blue-700"
+                        }`}>
+                          {insight.description}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   )
 }
