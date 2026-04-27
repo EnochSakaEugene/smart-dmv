@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { createAuditLog } from "@/lib/audit";
-import { getRequestIp } from "@/lib/request-ip";
 
 export async function POST(req: Request) {
   try {
@@ -15,134 +13,77 @@ export async function POST(req: Request) {
     }
 
     let session: { userId: string; email: string; role?: string };
+
     try {
       session = verifySession(token);
     } catch {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
-    if (session.role !== "STAFF" && session.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const { appointmentId } = await req.json();
 
-    const { verificationId, decision, notes } = await req.json();
-
-    if (!verificationId || !decision) {
+    if (!appointmentId) {
       return NextResponse.json(
-        { error: "verificationId and decision required" },
+        { error: "appointmentId is required" },
         { status: 400 }
       );
     }
 
-    if (decision !== "APPROVED" && decision !== "REJECTED") {
-      return NextResponse.json(
-        { error: "decision must be APPROVED or REJECTED" },
-        { status: 400 }
-      );
-    }
-
-    const ipAddress = await getRequestIp();
-
-    const result = await prisma.$transaction(async (tx) => {
-      const existingVerification = await tx.documentVerification.findUnique({
-        where: { id: verificationId },
-        select: {
-          id: true,
-          caseNumber: true,
-          status: true,
-          userId: true,
-          applicationId: true,
-        },
-      });
-
-      if (!existingVerification) {
-        throw new Error("Verification not found");
-      }
-
-      const verification = await tx.documentVerification.update({
-        where: { id: verificationId },
-        data: {
-          status: decision,
-          reviewedById: session.userId,
-          reviewedAt: new Date(),
-          reviewNotes: notes ?? "",
-          aiStatus:
-            decision === "APPROVED" ? "APPROVED_BY_STAFF" : "REJECTED_BY_STAFF",
-        },
-      });
-
-      if (existingVerification.applicationId) {
-        await tx.application.update({
-          where: { id: existingVerification.applicationId },
-          data: {
-            status: decision === "APPROVED" ? "APPROVED" : "REJECTED",
-          },
-        });
-      }
-
-      // ✅ When rejected, cancel any scheduled appointment for this user
-      if (decision === "REJECTED") {
-        await tx.appointment.updateMany({
-          where: {
-            userId: existingVerification.userId,
-            status: "SCHEDULED",
-          },
-          data: {
-            status: "CANCELLED",
-            cancelledAt: new Date(),
-          },
-        });
-      }
-
-      const activity = await tx.staffActivity.create({
-        data: {
-          staffId: session.userId,
-          verificationId: verification.id,
-          action: decision === "APPROVED" ? "APPROVED" : "REJECTED",
-          notes: notes ?? "",
-        },
-      });
-
-      console.log(
-        "STAFF ACTIVITY CREATED:",
-        activity.id,
-        activity.action,
-        activity.createdAt
-      );
-
-      return verification;
+    const appointment = await prisma.appointment.findFirst({
+      where: {
+        id: appointmentId,
+        userId: session.userId,
+      },
     });
 
-    await createAuditLog({
-      action: decision === "APPROVED" ? "Document approved" : "Document rejected",
-      actorId: session.userId,
-      actorEmail: session.email,
-      target: result.caseNumber || result.id,
-      ipAddress,
-      status: "SUCCESS",
-      category: "DOCUMENT",
-      metadata: {
-        verificationId: result.id,
-        decision,
-        notes: notes ?? "",
-        reviewedById: session.userId,
+    if (!appointment) {
+      return NextResponse.json(
+        { error: "Appointment not found" },
+        { status: 404 }
+      );
+    }
+
+    if (appointment.status !== "SCHEDULED") {
+      return NextResponse.json(
+        { error: "Only scheduled appointments can be cancelled" },
+        { status: 409 }
+      );
+    }
+
+    // ✅ Block cancellation within 24 hours of the appointment
+    const hoursUntilAppointment =
+      (new Date(appointment.appointmentDate).getTime() - Date.now()) / (1000 * 60 * 60);
+
+    if (hoursUntilAppointment < 24) {
+      return NextResponse.json(
+        {
+          error:
+            "Appointments cannot be cancelled within 24 hours of the scheduled time. Please contact the DMV directly.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const updated = await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
       },
     });
 
     return NextResponse.json({
       success: true,
-      verification: result,
+      appointment: {
+        id: updated.id,
+        status: updated.status.toLowerCase(),
+        cancelledAt: updated.cancelledAt?.toISOString() ?? null,
+      },
     });
   } catch (error) {
-    console.error("POST /api/staff/verifications/review error:", error);
-
+    console.error("POST /api/appointment/cancel error:", error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to review verification",
-      },
+      { error: "Failed to cancel appointment" },
       { status: 500 }
     );
   }

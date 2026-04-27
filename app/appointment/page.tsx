@@ -87,38 +87,16 @@ const generateTimeSlots = (locationType: string, date: Date) => {
       );
     } else {
       [
-        "6:00 AM",
-        "7:00 AM",
-        "8:00 AM",
-        "9:00 AM",
-        "10:00 AM",
-        "11:00 AM",
-        "12:00 PM",
-        "1:00 PM",
-        "2:00 PM",
-        "3:00 PM",
-        "4:00 PM",
-        "5:00 PM",
-        "6:00 PM",
+        "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM",
+        "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM", "6:00 PM",
       ].forEach((time) => {
         slots.push({ time, available: Math.random() > 0.25 });
       });
     }
   } else {
     [
-      "8:30 AM",
-      "9:00 AM",
-      "9:30 AM",
-      "10:00 AM",
-      "10:30 AM",
-      "11:00 AM",
-      "11:30 AM",
-      "1:00 PM",
-      "1:30 PM",
-      "2:00 PM",
-      "2:30 PM",
-      "3:00 PM",
-      "3:30 PM",
+      "8:30 AM", "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+      "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM",
     ].forEach((time) => {
       slots.push({ time, available: Math.random() > 0.3 });
     });
@@ -168,10 +146,18 @@ export default function AppointmentPage() {
     return date;
   }, []);
 
+  // ✅ Compute whether the appointment is within 24 hours
+  const isWithin24Hours = useMemo(() => {
+    if (!existingAppointment) return false;
+    const hoursUntil =
+      (new Date(existingAppointment.appointmentDate).getTime() - Date.now()) /
+      (1000 * 60 * 60);
+    return hoursUntil < 24;
+  }, [existingAppointment]);
+
   const availableLocations = useMemo(() => {
     if (!selectedDate) return [];
     const dayOfWeek = selectedDate.getDay();
-
     return DMV_LOCATIONS.filter((loc) => {
       if (loc.type === "Inspection" && dayOfWeek === 6) return true;
       if (dayOfWeek === 0 || dayOfWeek === 6) return false;
@@ -197,14 +183,8 @@ export default function AppointmentPage() {
     const initializePage = async () => {
       try {
         const [eligibilityRes, currentAppointmentRes] = await Promise.all([
-          fetch("/api/appointment/eligibility", {
-            credentials: "include",
-            cache: "no-store",
-          }),
-          fetch("/api/appointment/current", {
-            credentials: "include",
-            cache: "no-store",
-          }),
+          fetch("/api/appointment/eligibility", { credentials: "include", cache: "no-store" }),
+          fetch("/api/appointment/current", { credentials: "include", cache: "no-store" }),
         ]);
 
         const eligibilityData = await eligibilityRes.json().catch(() => null);
@@ -256,9 +236,7 @@ export default function AppointmentPage() {
     try {
       const res = await fetch("/api/appointment/book", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           locationId: locationData.id,
@@ -308,13 +286,9 @@ export default function AppointmentPage() {
 
       const res = await fetch("/api/appointment/cancel", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          appointmentId: existingAppointment.id,
-        }),
+        body: JSON.stringify({ appointmentId: existingAppointment.id }),
       });
 
       const data = await res.json().catch(() => null);
@@ -415,10 +389,7 @@ export default function AppointmentPage() {
                       <p className="text-xs text-muted-foreground">Date</p>
                       <p className="text-sm font-medium text-foreground">
                         {appointmentDate.toLocaleDateString("en-US", {
-                          weekday: "long",
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
+                          weekday: "long", year: "numeric", month: "long", day: "numeric",
                         })}
                       </p>
                     </div>
@@ -458,6 +429,18 @@ export default function AppointmentPage() {
                 </div>
               </div>
 
+              {/* ✅ 24-hour warning banner */}
+              {isWithin24Hours && (
+                <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-left">
+                  <div className="flex items-start gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-600"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                    <p className="text-xs text-amber-700">
+                      This appointment is within 24 hours and can no longer be cancelled online. Please contact the DMV directly if you need to make changes.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-6 flex flex-wrap justify-center gap-3">
                 <Button
                   onClick={() => {
@@ -468,11 +451,17 @@ export default function AppointmentPage() {
                     setSelectedTime(null);
                   }}
                   variant="outline"
+                  disabled={isWithin24Hours}
                 >
                   Reschedule
                 </Button>
 
-                <Button onClick={() => setShowCancelDialog(true)} variant="destructive">
+                <Button
+                  onClick={() => setShowCancelDialog(true)}
+                  variant="destructive"
+                  disabled={isWithin24Hours}
+                  title={isWithin24Hours ? "Cannot cancel within 24 hours of appointment" : undefined}
+                >
                   Cancel Appointment
                 </Button>
               </div>
@@ -480,7 +469,10 @@ export default function AppointmentPage() {
           </div>
         </main>
 
-        <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <Dialog open={showCancelDialog} onOpenChange={(open) => {
+          if (!open) setCancelMessage("");
+          setShowCancelDialog(open);
+        }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Cancel Appointment</DialogTitle>
@@ -495,10 +487,7 @@ export default function AppointmentPage() {
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {new Date(existingAppointment.appointmentDate).toLocaleDateString("en-US", {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
+                  weekday: "long", month: "long", day: "numeric", year: "numeric",
                 })}{" "}
                 at {existingAppointment.timeLabel}
               </p>
@@ -614,11 +603,7 @@ export default function AppointmentPage() {
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">2</div>
                 <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">Select Location</h3>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {selectedDate.toLocaleDateString("en-US", {
-                    weekday: "long",
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
                 </span>
               </div>
 
@@ -709,11 +694,7 @@ export default function AppointmentPage() {
                   <div>
                     <p className="text-[10px] uppercase text-muted-foreground">Date</p>
                     <p className="text-sm font-medium text-foreground">
-                      {selectedDate.toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                      {selectedDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </p>
                   </div>
                 </div>
