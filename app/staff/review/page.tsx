@@ -206,6 +206,15 @@ export default function StaffReviewPage() {
     [filter, searchQuery]
   )
 
+  // ✅ Read filter from URL param on mount (e.g. ?filter=ai-approved from dashboard)
+  useEffect(() => {
+    const filterParam = searchParams.get("filter")
+    if (filterParam === "ai-approved") setFilter("ai-approved")
+    else if (filterParam === "staff-review") setFilter("staff-review")
+    else if (filterParam === "low-confidence") setFilter("low-confidence")
+    else if (filterParam === "reviewed") setFilter("reviewed")
+  }, [])
+
   useEffect(() => {
     loadQueue(false)
     const interval = setInterval(() => loadQueue(true), 10000)
